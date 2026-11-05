@@ -31,3 +31,7 @@ npm start
 AI 图片/视频生成、积分、历史记录、客服和服务端存储均未配置，相关控件已停用；Google 登录和支付仅完成本地可配置边界，未完成真实账号、线上回调或实际收款验证。页面内原站价格、服务说明、隐私条款、退款政策及参考视频仅供复刻核对，不能作为新站的真实承诺。上线前须按实际配置和素材授权逐项核实并更新。当前页面设置了 noindex，robots.txt 禁止抓取；上线前需根据准备情况重新处理。
 
 仓库上传与本地保留清单见 [`REPOSITORY_GUIDE.md`](REPOSITORY_GUIDE.md)。
+
+## 发布说明
+
+当前 GitHub 仓库为 [hutton1108upup/fancycoffee](https://github.com/hutton1108upup/fancycoffee)，线上域名为 [fancycafeaivideo.pro](https://fancycafeaivideo.pro)。Cloudflare Worker 采用手动 CLI 发布，不是 Git push 自动部署；发布前按顺序执行 `npm ci`、`npm test`、`npm run build`，再由已确认的发布身份执行 `npx wrangler deploy`。发布后检查 `/release.json`，将其中 `gitSha` 与 `main` 的实际提交核对；当前构建在无有效提交时会记录 `unknown`，不会伪造 SHA。站点保持 `noindex`，provider 仍未配置；HTTPS 页面已可访问，但线上 Google OAuth 回调和真实 provider 仍未验证。
