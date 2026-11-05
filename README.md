@@ -1,37 +1,55 @@
-# Fancy Cafe AI 本地复刻预览
+# Fancy Cafe AI
 
-本目录是根据原站公开页面保存的静态预览，共 15 个页面，并非原项目源码或可上线成品。图片、视频和字体保存在本地。原页面中的域名已替换为 https://fancycafeaivideo.pro，客服邮箱暂未配置。
+这是一个 15 页的公开页面复刻和发布预览项目。原站源码没有取得；仓库保存的是页面、字体、媒体、reference 资源，以及本项目后来编写的本地原型和 Cloudflare Worker 代码。
 
-## 本地查看
+当前确认可用的是 `https://fancycafeaivideo.pro` 主站、`www` 到 apex 的 HTTPS 重定向和 HTTPS 静态资源。Google 登录、Waffo 支付和 AI 生成在本项目没有真实凭据，因此尚未真实接通；AI 仍未接通，正式付款保持 disabled。
 
-在本目录打开 PowerShell，运行本地服务（会提供页面和未配置状态的安全 API）：
+## 两套运行边界
+
+`local-server.mjs`、`auth/` 下的 Node 认证原型和本地 SQLite 测试只用于本地开发与审查。它们不代表线上运行代码。
+
+正式 Worker 入口是 `deploy/worker.mjs`，正式认证和支付实现分别在 `deploy/auth.mjs`、`deploy/payments.mjs`，用户、OAuth flow、session 和正式账本使用 Cloudflare D1。两套边界不要混用，也不要把 Node 内存 session 当成线上持久化证明。
+
+线上已创建并应用 schema：
+
+- `APP_DB`：`fancycoffee-app`，包含 `users`、`oauth_flows`、`sessions` 和 4 张支付表。
+- `BILLING_TEST_DB`：`fancycoffee-billing-test`，仅包含支付表。
+- 当前用户、订单和支付记录均为 0。
+
+## 本地检查
+
+在项目目录运行：
 
 ```powershell
-npm start
+npm ci
+npm test
+npm run build
+npm run deploy:dry-run
 ```
 
-浏览器访问 http://127.0.0.1:8766/ 。按 Ctrl+C 停止服务。若 8766 也被占用，可运行 `$env:PORT='8876'; node local-server.mjs` 后访问对应端口。
-
-## Google 登录本地接入
-
-登录路由已经接入，但只有配置真实 Google OAuth 客户端后才会跳转到 Google；没有配置时 `/auth/google/start` 返回 `503 AUTH_CONFIGURATION_MISSING`，不会伪造登录。
-
-先在编辑器中复制 `.env.example` 为 `.env`，再只在 `.env` 文件中填写 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 和 `GOOGLE_REDIRECT_URI`；不要把 secret 粘贴到聊天窗口或终端命令中。然后在项目目录运行：
+`npm start` 只启动 Node 本地原型。Worker 发布由已授权的 Cloudflare 身份手动执行：
 
 ```powershell
-npm start
+npx wrangler deploy
 ```
 
-`npm start` 会使用 Node 24 的 `--env-file-if-exists=.env` 自动加载本地配置。
+GitHub push 不会自动部署 Worker。发布前使用 `dist/release.json` 核对构建信息；没有有效 Git revision 时会记录 `unknown`，不会伪造 SHA。
 
-本地路由：`GET /auth/google/start`、`GET /auth/google/callback`、`GET /auth/me`、`POST /auth/logout`。流程使用 `state`、`nonce`、S256 PKCE 和 HttpOnly SameSite 会话 Cookie；本地会话存于进程内，重启服务会清除。不要把 `.env` 提交到 Git。当前只完成本地路由和离线 mock 验证，真实 Google 账号、线上回调和生产 HTTPS 尚未验证。支付模块也只完成本地边界与离线测试，未接 HTTP 实际收款；运行数据应放在被忽略的 `.data/` 私有目录中。
+## 正式配置
 
-## 尚未接入
+本地变量模板见 `.dev.vars.example`，正式 secret 放 Cloudflare Worker secret，不要发到聊天，也不要提交 Git。
 
-AI 图片/视频生成、积分、历史记录、客服和服务端存储均未配置，相关控件已停用；Google 登录和支付仅完成本地可配置边界，未完成真实账号、线上回调或实际收款验证。页面内原站价格、服务说明、隐私条款、退款政策及参考视频仅供复刻核对，不能作为新站的真实承诺。上线前须按实际配置和素材授权逐项核实并更新。当前页面设置了 noindex，robots.txt 禁止抓取；上线前需根据准备情况重新处理。
+- Google OAuth callback：`https://fancycafeaivideo.pro/auth/google/callback`
+- Waffo test webhook：`https://fancycafeaivideo.pro/api/waffo/webhook/test`
+- Waffo production webhook：`https://fancycafeaivideo.pro/api/waffo/webhook/production`
+- 商品：20 credits `$9.99`、60 credits `$24.99`、200 credits `$69.99`，均为一次性 USD 套餐。
+- Google 登录需要 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 和 `APP_DB`。
+- 支付需要对应 `WAFFO_TEST_*` 或 `WAFFO_PRODUCTION_*`、产品 ID 以及 `BILLING_TEST_DB` 或 `APP_DB`。
 
-仓库上传与本地保留清单见 [`REPOSITORY_GUIDE.md`](REPOSITORY_GUIDE.md)。
+provider 没有配置时接口会明确返回未配置状态，不会伪造登录、支付、积分或视频结果。
 
-## 发布说明
+## 验证边界
 
-当前 GitHub 仓库为 [hutton1108upup/fancycoffee](https://github.com/hutton1108upup/fancycoffee)，线上域名为 [fancycafeaivideo.pro](https://fancycafeaivideo.pro)。Cloudflare Worker 采用手动 CLI 发布，不是 Git push 自动部署；发布前按顺序执行 `npm ci`、`npm test`、`npm run build`，再由已确认的发布身份执行 `npx wrangler deploy`。发布后检查 `/release.json`，将其中 `gitSha` 与 `main` 的实际提交核对；当前构建在无有效提交时会记录 `unknown`，不会伪造 SHA。站点保持 `noindex`，provider 仍未配置；HTTPS 页面已可访问，但线上 Google OAuth 回调和真实 provider 仍未验证。
+本地 mock、Node SQLite 和 Worker 单元测试验证的是代码契约，不等于真实 Google 授权、Waffo checkout/webhook、D1 线上读写或真实收款已验证。当前浏览器工具连接故障，未通过浏览器读取旧项目凭据，也未用旧凭据做线上登录测试。
+
+仓库上传和本地保留范围见 [`REPOSITORY_GUIDE.md`](REPOSITORY_GUIDE.md)。

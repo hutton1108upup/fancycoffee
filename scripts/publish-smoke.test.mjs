@@ -31,7 +31,7 @@ test('publish worker exposes preview API boundaries and assets only', async () =
   assert.equal(packs.status, 200);
   assert.equal((await packs.json()).packs.length, 3);
   assert.equal((await call('https://fancycafeaivideo.pro/api/generate', { method: 'POST' })).status, 503);
-  assert.equal((await call('https://fancycafeaivideo.pro/auth/google/start')).status, 404);
+  assert.equal((await call('https://fancycafeaivideo.pro/auth/google/start')).status, 503);
   const asset = await call('https://fancycafeaivideo.pro/index.html');
   assert.equal(asset.status, 200);
   assert.equal((await asset.text()).startsWith('asset:'), true);
