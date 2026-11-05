@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../deploy/worker.mjs';
+
+const assets = { fetch: async (request) => new Response(`asset:${new URL(request.url).pathname}`, { status: 200, headers: { 'content-type': 'text/plain' } }) };
+const call = (url, init) => worker.fetch(new Request(url, init), { ASSETS: assets });
+test('publish worker redirects www and http while preserving path and query', async () => { const www = await call('https://www.fancycafeaivideo.pro/blog/?x=1'); assert.equal(www.status, 301); assert.equal(www.headers.get('location'), 'https://fancycafeaivideo.pro/blog/?x=1'); const http = await call('http://fancycafeaivideo.pro/pricing?x=2'); assert.equal(http.status, 301); assert.equal(http.headers.get('location'), 'https://fancycafeaivideo.pro/pricing?x=2'); });
+test('publish worker exposes preview API boundaries and assets only', async () => { assert.equal((await call('https://fancycafeaivideo.pro/api/health')).status, 200); assert.equal((await call('https://fancycafeaivideo.pro/auth/me')).status, 200); const packs = await call('https://fancycafeaivideo.pro/api/credit-packs'); assert.equal(packs.status, 200); assert.equal((await packs.json()).packs.length, 3); assert.equal((await call('https://fancycafeaivideo.pro/api/generate', { method: 'POST' })).status, 503); assert.equal((await call('https://fancycafeaivideo.pro/auth/google/start')).status, 404); const asset = await call('https://fancycafeaivideo.pro/index.html'); assert.equal(asset.status, 200); assert.equal((await asset.text()).startsWith('asset:'), true); });

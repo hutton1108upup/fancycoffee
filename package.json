@@ -1,0 +1,22 @@
+{
+  "name": "fancycoffee",
+  "version": "1.0.0",
+  "description": "本目录是根据原站公开页面保存的静态预览，共 15 个页面，并非原项目源码或可上线成品。图片、视频和字体保存在本地。原页面中的域名已替换为 https://fancycafeaivideo.pro，客服邮箱暂未配置。",
+  "main": "local-server.mjs",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env local-server.mjs",
+    "build": "node scripts/build-static.mjs",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
+    "test": "node --test auth/*.test.mjs generation/*.test.mjs payments/*.test.mjs scripts/*.test.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "google-auth-library": "10.3.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.157.0"
+  }
+}
