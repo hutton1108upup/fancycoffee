@@ -2,7 +2,7 @@
 
 这是一个 15 页的公开页面复刻和发布预览项目。原站源码没有取得；仓库保存的是页面、字体、媒体、reference 资源，以及本项目后来编写的本地原型和 Cloudflare Worker 代码。
 
-当前确认可用的是 `https://fancycafeaivideo.pro` 主站、`www` 到 apex 的 HTTPS 重定向和 HTTPS 静态资源。Google 登录、Waffo 支付和 AI 生成在本项目没有真实凭据，因此尚未真实接通；AI 仍未接通，正式付款保持 disabled。
+当前确认可用的是 `https://fancycafeaivideo.pro` 主站、`www` 到 apex 的 HTTPS 重定向和 HTTPS 静态资源。Google 登录和 Waffo Test 沙箱支付已完成一次真实流程验收；生产付款、真实退款和 AI 生成仍保持 disabled。外部配置阶段记录见 [`docs/EXTERNAL_SETUP.md`](docs/EXTERNAL_SETUP.md)。
 
 ## 两套运行边界
 
@@ -14,7 +14,7 @@
 
 - `APP_DB`：`fancycoffee-app`，包含 `users`、`oauth_flows`、`sessions` 和 4 张支付表。
 - `BILLING_TEST_DB`：`fancycoffee-billing-test`，仅包含支付表。
-- 当前用户、订单和支付记录均为 0。
+- `APP_DB` 已验证 `users=1`、`sessions=1`；正式订单、正式 ledger 和正式 credits 均为 0。Test 账本有 1 次已验证的 20 credits 沙箱授信，未混入 `APP_DB`。
 
 ## 本地检查
 
@@ -50,6 +50,6 @@ provider 没有配置时接口会明确返回未配置状态，不会伪造登�
 
 ## 验证边界
 
-本地 mock、Node SQLite 和 Worker 单元测试验证的是代码契约，不等于真实 Google 授权、Waffo checkout/webhook、D1 线上读写或真实收款已验证。当前浏览器工具连接故障，未通过浏览器读取旧项目凭据，也未用旧凭据做线上登录测试。
+本地 mock、Node SQLite 和 Worker 单元测试验证的是代码契约；真实 Google 登录和一次 Waffo Test 沙箱 checkout/webhook/D1 授信已有独立证据，但不等于真钱收款、退款、生产资源或 AI 已验证。2026-11-05 的浏览器记录中，旧标签页绑定曾出现 `Emulation.setFocusEmulationEnabled` 超时；新建 Chrome 标签页可通过可访问性状态、点击和输入完成外部配置操作。未读取旧项目凭据，也未复用其他项目密钥。
 
 仓库上传和本地保留范围见 [`REPOSITORY_GUIDE.md`](REPOSITORY_GUIDE.md)。

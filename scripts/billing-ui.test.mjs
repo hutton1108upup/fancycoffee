@@ -43,14 +43,15 @@ function runtime({ fetchImpl, storageImpl = new Map() } = {}) {
   const changeCounts = { lead: 0, regular: 0 };
   const inputs = { lead: { disabled: true, dataset: {}, removeAttribute() {}, addEventListener() { changeCounts.lead += 1; } }, regular: { disabled: true, dataset: {}, removeAttribute() {}, addEventListener() { changeCounts.regular += 1; } } };
   const eventCounts = { style: 0 };
+  const status = { textContent: '' };
   const makeNode = () => ({ dataset: {}, style: {}, children: [], append(...items) { this.children.push(...items); }, prepend(...items) { this.children.unshift(...items); }, removeChild() {}, setAttribute() {}, removeAttribute() {}, closest() { return null; }, addEventListener() {}, className: '', textContent: '' });
   const standard = makeNode(); standard.addEventListener = () => { eventCounts.style += 1; };
   const closer = makeNode(); closer.addEventListener = () => { eventCounts.style += 1; };
-  const document = { addEventListener(name, callback) { if (name === 'DOMContentLoaded') listeners.push(callback); }, getElementById(id) { return id === 'photo-lead' ? inputs.lead : inputs.regular; }, querySelector(selector) { return selector === '[data-testid="video-style-standard"]' ? standard : selector === '[data-testid="video-style-closer"]' ? closer : null; }, querySelectorAll() { return []; }, createElement: makeNode, head: makeNode(), body: makeNode() };
+  const document = { addEventListener(name, callback) { if (name === 'DOMContentLoaded') listeners.push(callback); }, getElementById(id) { return id === 'photo-lead' ? inputs.lead : inputs.regular; }, querySelector(selector) { return selector === '#service-status' ? status : selector === '[data-testid="video-style-standard"]' ? standard : selector === '[data-testid="video-style-closer"]' ? closer : null; }, querySelectorAll() { return []; }, createElement: makeNode, head: makeNode(), body: makeNode() };
   const storage = { setItem: (key, value) => { if (storageImpl.setItem) return storageImpl.setItem(key, value); storageImpl.set(key, value); }, getItem: (key) => { if (storageImpl.getItem) return storageImpl.getItem(key); return storageImpl.get(key) || null; }, removeItem: (key) => { if (storageImpl.removeItem) return storageImpl.removeItem(key); storageImpl.delete(key); } };
   const context = { document, window: { location: { pathname: '/', search: '', hash: '', assign() {} } }, URL, URLSearchParams, AbortController, setTimeout, clearTimeout, sessionStorage: storage, fetch: fetchImpl || (async () => ({ ok: false, status: 503, json: async () => ({}) })), console };
   vm.runInNewContext(studio, context);
-  return { context, billing: context.__fancyCafeBilling, listeners, inputs, changeCounts, eventCounts };
+  return { context, billing: context.__fancyCafeBilling, listeners, inputs, changeCounts, eventCounts, status };
 }
 
 test('DOMContentLoaded enables local upload before network promises settle', async () => {
@@ -92,4 +93,17 @@ test('502 response orderId is retained for later verification', async () => {
   app.billing.configure({ auth: { authenticated: true, user: { id: 'user-1' } }, csrfToken: 'csrf' });
   await app.billing.checkout('credits-20', { disabled: false, closest() { return null; } });
   assert.equal(app.billing.getPending().orderId, 'order-keep');
+});
+
+test('service banner lists only unavailable capabilities and marks test checkout', () => {
+  const app = runtime();
+  assert.doesNotThrow(() => app.billing.updateServiceStatus(null, null));
+  app.billing.updateServiceStatus({ providers: { auth: 'configured', ai: 'unconfigured' } }, { paymentMode: { mode: 'test', testConfigured: true } });
+  assert.equal(app.status.textContent.includes('video generation'), true);
+  assert.equal(app.status.textContent.includes('Google sign-in'), false);
+  assert.equal(app.status.textContent.includes('Checkout is in test mode; no real charges.'), true);
+  app.billing.updateServiceStatus({ providers: { auth: 'configured', ai: 'configured' } }, { paymentMode: { mode: 'prod', productionConfigured: false, checkoutEnabled: false } });
+  assert.equal(app.status.textContent.includes('purchases'), true);
+  assert.equal(app.status.textContent.includes('video generation'), false);
+  assert.equal(app.status.textContent.includes('Google sign-in'), false);
 });
