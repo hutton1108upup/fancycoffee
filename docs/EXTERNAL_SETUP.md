@@ -86,8 +86,9 @@ Waffo GraphQL API 已返回本店 3 个 `active` Test 商品。`prodEnabled=fals
 - `.data/evidence/waffo-test-paid.jpg`
 - `.data/evidence/google-auth-published.jpg`
 - `.data/evidence/waffo-test-products.jpg`
+- `.data/evidence/account-test-credits-20.jpg`
 
-未将 account 截图成功写成证据；该截图捕获曾超时，实际判断依据是可访问性状态、D1 数据和页面行为。
+account 截图首次捕获曾超时；后来通过新建 Chrome 标签页已成功保存 `.data/evidence/account-test-credits-20.jpg`。此前的可访问性状态、D1 数据和页面行为证据仍保留。
 
 ## 生产状态
 
