@@ -2,6 +2,7 @@ import { copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VIDEO_ASSETS } from '../deploy/video-assets.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dist = join(root, 'dist');
@@ -14,6 +15,7 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 for (const file of files) { const source = join(root, file); if (file === 'index.html') { let content = readFileSync(source, 'utf8').replaceAll('Local preview:', 'Production preview:').replace('</body>', '<script src="/local-studio.js" defer></script></body>'); writeFileSync(join(dist, file), content); } else copyFileSync(source, join(dist, file)); }
 for (const dir of dirs) copyTree(join(root, dir), join(dist, dir));
+for (const [pathname, expectedSize] of Object.entries(VIDEO_ASSETS)) { const source = join(root, pathname.slice(1)); const built = join(dist, pathname.slice(1)); if (statSync(source).size !== expectedSize || statSync(built).size !== expectedSize) throw new Error(`Video manifest size mismatch: ${pathname}`); }
 let gitSha = 'unknown'; try { gitSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() || 'unknown'; } catch {}
 writeFileSync(join(dist, 'release.json'), JSON.stringify({ app: 'fancycoffee', build: 'static-preview', gitSha, generatedAt: new Date().toISOString(), externalProviders: 'unverified' }, null, 2) + '\n');
 console.log(`Static publish build ready: ${dist}`); console.log(`gitSha: ${gitSha}`);

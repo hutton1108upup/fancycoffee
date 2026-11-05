@@ -1,4 +1,5 @@
 import { listCreditPacks } from '../payments/catalog.mjs';
+import { VIDEO_ASSETS } from './video-assets.mjs';
 
 const CANONICAL_HOST = 'fancycafeaivideo.pro';
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
@@ -50,13 +51,13 @@ function passthrough(response, request, headers) {
   return new Response(request.method === 'HEAD' ? null : response.body, { status: response.status, headers });
 }
 
-async function serveMp4(request, env) {
+async function serveMp4(request, env, pathname) {
   const headers = new Headers([...request.headers].filter(([key]) => !['range', 'if-range'].includes(key)));
   const upstream = await env.ASSETS.fetch(new Request(request, { method: request.method === 'HEAD' ? 'HEAD' : 'GET', headers }));
   const outputHeaders = new Headers(upstream.headers);
   const rangeHeader = request.headers.get('range');
   const rawLength = upstream.headers.get('content-length');
-  const size = rawLength !== null && /^[0-9]+$/.test(rawLength.trim()) ? Number(rawLength) : null;
+  const size = rawLength !== null && /^[0-9]+$/.test(rawLength.trim()) ? Number(rawLength) : VIDEO_ASSETS[pathname] ?? null;
   const supportsRange = Number.isSafeInteger(size) && size <= MAX_RANGE_BYTES;
   if (supportsRange) outputHeaders.set('accept-ranges', 'bytes');
   if (!upstream.ok || request.method === 'HEAD') return passthrough(upstream, request, outputHeaders);
@@ -70,7 +71,10 @@ async function serveMp4(request, env) {
   }
 
   const body = await upstream.arrayBuffer();
-  if (body.byteLength !== size) return new Response(body, { status: upstream.status, headers: outputHeaders });
+  if (body.byteLength !== size) {
+    outputHeaders.delete('accept-ranges');
+    return new Response(body, { status: upstream.status, headers: outputHeaders });
+  }
   const chunk = body.slice(range.start, range.end + 1);
   outputHeaders.set('content-range', `bytes ${range.start}-${range.end}/${size}`);
   outputHeaders.set('content-length', String(chunk.byteLength));
@@ -86,7 +90,7 @@ export default {
     if (url.pathname === '/api/credit-packs') return json({ ok: true, mode: 'production-preview', paymentMode: 'unconfigured', packs: listCreditPacks() });
     if (url.pathname === '/api/generate') return json({ ok: false, code: 'PROVIDER_UNCONFIGURED', message: 'Video generation is not connected in this production preview. No video or credits were created.' }, 503);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) return json({ ok: false, code: 'NOT_FOUND', message: 'This preview endpoint is not connected.' }, 404);
-    if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname.toLowerCase().endsWith('.mp4')) return serveMp4(request, env);
+    if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname.toLowerCase().endsWith('.mp4')) return serveMp4(request, env, url.pathname);
     return env.ASSETS.fetch(request);
   },
 };

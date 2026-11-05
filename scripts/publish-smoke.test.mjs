@@ -87,3 +87,13 @@ test('publish worker streams unknown length and rejects ranges on zero length', 
   assert.equal(emptyResponse.status, 416);
   assert.equal(emptyResponse.headers.get('content-range'), 'bytes */0');
 });
+
+test('publish worker uses the tracked size manifest when assets omit content length', async () => {
+  const body = new Uint8Array(2293781);
+  body.set([10, 11, 12, 13, 14, 15], 2);
+  const manifestAssets = { fetch: async () => new Response(body, { status: 200, headers: { 'content-type': 'video/mp4' } }) };
+  const response = await worker.fetch(new Request('https://fancycafeaivideo.pro/media/fancy-cafe/reference-19s.mp4', { headers: { range: 'bytes=2-5' } }), { ASSETS: manifestAssets });
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get('content-range'), 'bytes 2-5/2293781');
+  assert.deepEqual(Array.from(new Uint8Array(await response.arrayBuffer())), [10, 11, 12, 13]);
+});
