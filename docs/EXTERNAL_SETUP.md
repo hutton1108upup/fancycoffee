@@ -114,7 +114,31 @@ account 截图首次捕获曾超时；后来通过新建 Chrome 标签页已成�
 
 审核截图保存在 `.data/evidence/waffo-business-review.jpg`。在这些资料确认和提交前，生产资质与生产收款继续保持 disabled。
 
-真实 Google 授权、Waffo Test checkout、签名 webhook、D1 订单状态变更和积分授信已完成一次 Test 端到端验收。`APP_DB` production orders、ledger rows 和 credits 均为 0，Test 积分没有混入正式库。真实真钱扣款、退款、生产 key/product/webhook 尚未验证；生产资质未开通，Test 成功不代表生产收款。退款事件当前为 `pending_review`，没有自动回收积分能力。AI 仍未接通。
+真实 Google 授权、Waffo Test checkout、签名 webhook、D1 订单状态变更和积分授信已完成一次 Test 端到端验收。`APP_DB` production orders、ledger rows 和 credits 均为 0，Test 积分没有混入正式库。真实真钱扣款、退款、生产 key/product/webhook 尚未验证；生产资质未开通，Test 成功不代表生产收款。退款事件当前为 `pending_review`，没有自动回收积分能力。AI 已完成一次受控 Test 生成，但生产生成和对外开放仍未接通。
+
+## 2026-11-06 受控 Test 生成验收
+
+使用受控测试账号，在正式 Worker 页面 `?sample=1` 选择本站原创木偶 PNG，沿同一 `photo-lead` change、校验、预览和 multipart Generate 路径完成一次真实供应商 Test 生成：
+
+- 模型：标准 `seedance-2.0`，480p，15 秒，图生视频。
+- 网站消耗：20 credits。
+- Provider task：`task_01M6QB0W51XYPRQARYMX3PPA49`。
+- Provider 成本：`$0.99` / 9.9 provider credits；观察到汇率 `6.6684`，约 `¥6.60`。
+- Provider 任务耗时：353 秒；API 余额从 42.63 降至 32.73，减少 9.90 provider credits。
+- Test key 总限额：10 credits；有效期：1 天。
+- D1 run：`b5ab6a20-4908-4cac-9db9-f4a5da0830ef`。
+- 账本：paid 20 → reserved 20 → reserved 0，delivered 20，available 0。
+- 官网刷新后恢复 owner 视频；实际下载输出 2,819,373 bytes，SHA-256 为 `71b5a7d1c537bcccd4cd7a43d564b188ed80a145f62a2dbb2d25d76c9c8b0cfc`。
+- 输出完整解码为 361 帧、15.104 秒、496×864、24fps、H.264/AAC 有声。
+
+本地证据：
+
+- `.data/evidence/seedance-fancy-cafe.mp4`
+- `.data/evidence/seedance-site-playback.jpg`
+- `.data/evidence/seedance-output-check.json`
+- `.data/evidence/seedance-apimart-receipt.jpg`
+
+输入桶保留 7 天，输出桶保留 30 天。APIMart API hostname 已核对。该结果只证明一次受控 Test run；生产 key、生产预算、真实收费/退款、真人照片审批、Closer/720p 和普通公测仍未验收。对外开放生成前仍需完成生产配置和收费审核，不能把 Test key 或单次授权 run 当作无限公测能力。
 
 ## 本地/部署侧核对清单
 
