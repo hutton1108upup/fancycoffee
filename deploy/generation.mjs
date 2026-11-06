@@ -7,10 +7,11 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 32 * 1024 * 1024;
 const ALLOWED_EMAILS = "GENERATION_ALLOWED_EMAILS";
 class GenerationHttpError extends Error {
-  constructor(code, message, status = 400) {
+  constructor(code, message, status = 400, details = {}) {
     super(message);
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 function json(body, status = 200) {
@@ -86,8 +87,22 @@ function quote(env) {
   if (![usd, cny, fx].every(Number.isFinite) || usd < 0 || cny < 0 || fx <= 0 || usd * fx > 8 || cny > 8 || !Number.isFinite(expires) || expires <= now()) throw new GenerationHttpError("GENERATION_QUOTE_UNAVAILABLE", "A current server quote within the 8 CNY ceiling is required.", 503);
   return { usd, cny, fx, expiresAt: new Date(expires).toISOString() };
 }
+const PROVIDER_STATUSES = new Set(["pending", "submitted", "processing", "completed", "failed", "unknown"]);
+const DELIVERY_STATES = new Set(["PROVIDER_STATUS_TEMPORARY", "PROVIDER_URL_UNTRUSTED", "VIDEO_FETCH_RETRYABLE", "VIDEO_FETCH_INVALID", "OUTPUT_STORAGE_RETRYABLE"]);
+function safeDiagnostics(row) {
+  let meta = {};
+  try { meta = row?.result_meta_json ? JSON.parse(row.result_meta_json) : {}; } catch { meta = {}; }
+  return {
+    providerStatus: PROVIDER_STATUSES.has(meta.providerStatus) ? meta.providerStatus : void 0,
+    deliveryState: DELIVERY_STATES.has(meta.deliveryState) ? meta.deliveryState : void 0,
+    outputHost: typeof meta.outputHost === "string" && /^[a-z0-9.-]+$/i.test(meta.outputHost) ? meta.outputHost : void 0,
+    upstreamHttpStatus: Number.isInteger(meta.upstreamHttpStatus) && meta.upstreamHttpStatus >= 100 && meta.upstreamHttpStatus <= 599 ? meta.upstreamHttpStatus : void 0
+  };
+}
 function rowJob(row) {
-  return row ? { id: row.run_id, requestId: row.request_id, status: row.status, previewUrl: row.status === "completed" && row.result_url ? `/api/generations/${encodeURIComponent(row.run_id)}/preview` : void 0, downloadUrl: row.status === "completed" && row.result_url ? `/api/generations/${encodeURIComponent(row.run_id)}/download` : void 0, errorCode: row.status === "failed" ? row.error_code : void 0 } : null;
+  if (!row) return null;
+  const diagnostics = safeDiagnostics(row);
+  return { id: row.run_id, requestId: row.request_id, status: row.status, previewUrl: row.status === "completed" && row.result_url ? `/api/generations/${encodeURIComponent(row.run_id)}/preview` : void 0, downloadUrl: row.status === "completed" && row.result_url ? `/api/generations/${encodeURIComponent(row.run_id)}/download` : void 0, errorCode: row.status === "failed" ? row.error_code : void 0, ...diagnostics };
 }
 function db(env, deps) {
   return deps?.db || env?.APP_DB;
@@ -151,9 +166,9 @@ function provider(env, deps) {
     }
   }, async getTask(taskId) {
     try {
-      const response = await fetch(`https://api.apimart.ai/v1/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${env.APIMART_API_KEY}` }, signal: AbortSignal.timeout?.(15e3) });
+      const response = await fetch(`https://api.apimart.ai/v1/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${env.APIMART_API_KEY}`, "cache-control": "no-cache", pragma: "no-cache" }, cache: "no-store", signal: AbortSignal.timeout?.(15e3) });
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.data) throw new GenerationHttpError("PROVIDER_UNKNOWN", "APIMart task status could not be verified.", 502);
+      if (!response.ok || !body?.data) throw new GenerationHttpError("PROVIDER_UNKNOWN", "APIMart task status could not be verified.", 502, { upstreamHttpStatus: response.status });
       return body.data;
     } catch (error) {
       if (error instanceof GenerationHttpError) throw error;
@@ -241,43 +256,50 @@ async function handleGeneration(request, env, deps = {}) {
     return json({ ok: false, code: error.code || "PROVIDER_ERROR", job: { id: runId, status } }, status === "unknown" ? 502 : 503);
   }
 }
+async function recordDiagnostic(row, env, fields) {
+  const meta = { providerStatus: fields.providerStatus, deliveryState: fields.deliveryState, outputHost: fields.outputHost, upstreamHttpStatus: fields.upstreamHttpStatus };
+  try { await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: row.status, errorCode: fields.deliveryState || fields.errorCode, resultMeta: meta }); } catch { }
+  return { ...row, result_meta_json: JSON.stringify(meta), error_code: fields.deliveryState || fields.errorCode || row.error_code };
+}
 async function refreshJob(row, env, deps, database) {
   if (!["submitted", "processing", "unknown"].includes(row.status) || !row.provider_task_id) return row;
   let result;
   try {
     result = await provider(env, deps).getTask(row.provider_task_id);
-  } catch {
-    return row;
+  } catch (error) {
+    return recordDiagnostic(row, env, { providerStatus: "unknown", deliveryState: "PROVIDER_STATUS_TEMPORARY", upstreamHttpStatus: error?.details?.upstreamHttpStatus });
   }
   if (result.status === "failed") {
     await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "PROVIDER_FAILED" });
     return { ...row, status: "failed", error_code: "PROVIDER_FAILED" };
   }
-  if (result.status !== "completed") return row;
+  if (result.status !== "completed") return recordDiagnostic(row, env, { providerStatus: PROVIDER_STATUSES.has(result.status) ? result.status : "processing" });
   const outputUrl = result?.result?.videos?.[0]?.url?.[0];
-  if (!trustedOutputUrl(outputUrl, env)) return { ...row, error_code: "PROVIDER_URL_UNTRUSTED" };
+  let outputHost;
+  try { outputHost = new URL(outputUrl).hostname; } catch { outputHost = undefined; }
+  if (!trustedOutputUrl(outputUrl, env)) return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "PROVIDER_URL_UNTRUSTED", outputHost });
   let response;
   try {
     response = await fetch(outputUrl, { signal: AbortSignal.timeout?.(15e3), redirect: "error" });
   } catch {
-    return { ...row, error_code: "VIDEO_FETCH_RETRYABLE" };
+    return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "VIDEO_FETCH_RETRYABLE", outputHost });
   }
   const contentType = (response.headers.get("content-type") || "").toLowerCase().split(";", 1)[0];
   const declared = Number(response.headers.get("content-length"));
   if (!response.ok || contentType !== "video/mp4" && contentType !== "application/octet-stream" || Number.isFinite(declared) && declared > MAX_VIDEO_BYTES) {
-    await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO" });
+    await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO", resultMeta: { providerStatus: "completed", deliveryState: "VIDEO_FETCH_INVALID", outputHost, upstreamHttpStatus: response.status } });
     return { ...row, status: "failed", error_code: "INVALID_PROVIDER_VIDEO" };
   }
   let bytes;
   try {
     bytes = await readLimited(response, MAX_VIDEO_BYTES);
   } catch (error) {
-    if (error.code === "BODY_READ_RETRYABLE") return { ...row, error_code: "VIDEO_READ_RETRYABLE" };
-    await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO" });
+    if (error.code === "BODY_READ_RETRYABLE") return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "VIDEO_FETCH_RETRYABLE", outputHost, upstreamHttpStatus: response.status });
+    await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO", resultMeta: { providerStatus: "completed", deliveryState: "VIDEO_FETCH_INVALID", outputHost, upstreamHttpStatus: response.status } });
     return { ...row, status: "failed", error_code: "INVALID_PROVIDER_VIDEO" };
   }
   if (!mp4Magic(bytes)) {
-    await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO" });
+    await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO", resultMeta: { providerStatus: "completed", deliveryState: "VIDEO_FETCH_INVALID", outputHost, upstreamHttpStatus: response.status } });
     return { ...row, status: "failed", error_code: "INVALID_PROVIDER_VIDEO" };
   }
   const outputKey = `generation-output/${row.user_id}/${row.run_id}.mp4`;
@@ -286,9 +308,9 @@ async function refreshJob(row, env, deps, database) {
     else if (env.GENERATION_MEDIA) await env.GENERATION_MEDIA.put(outputKey, bytes, { httpMetadata: { contentType: "video/mp4" } });
     else throw new Error("storage unavailable");
   } catch {
-    return { ...row, error_code: "OUTPUT_STORAGE_RETRYABLE" };
+    return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "OUTPUT_STORAGE_RETRYABLE", outputHost });
   }
-  await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "completed", resultUrl: outputKey, resultMeta: { outputBytes: bytes.byteLength, outputUrlHost: new URL(outputUrl).hostname } });
+  await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "completed", resultUrl: outputKey, resultMeta: { providerStatus: "completed", outputHost, outputBytes: bytes.byteLength } });
   return { ...row, status: "completed", result_url: outputKey };
 };
 async function serveStoredJob(row, env, deps, attachment) {
