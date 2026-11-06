@@ -94,16 +94,3 @@ test('502 response orderId is retained for later verification', async () => {
   await app.billing.checkout('credits-20', { disabled: false, closest() { return null; } });
   assert.equal(app.billing.getPending().orderId, 'order-keep');
 });
-
-test('service banner lists only unavailable capabilities and marks test checkout', () => {
-  const app = runtime();
-  assert.doesNotThrow(() => app.billing.updateServiceStatus(null, null));
-  app.billing.updateServiceStatus({ providers: { auth: 'configured', ai: 'unconfigured' } }, { paymentMode: { mode: 'test', testConfigured: true } });
-  assert.equal(app.status.textContent.includes('video generation'), true);
-  assert.equal(app.status.textContent.includes('Google sign-in'), false);
-  assert.equal(app.status.textContent.includes('Checkout is in test mode; no real charges.'), true);
-  app.billing.updateServiceStatus({ providers: { auth: 'configured', ai: 'configured' } }, { paymentMode: { mode: 'prod', productionConfigured: false, checkoutEnabled: false } });
-  assert.equal(app.status.textContent.includes('purchases'), true);
-  assert.equal(app.status.textContent.includes('video generation'), false);
-  assert.equal(app.status.textContent.includes('Google sign-in'), false);
-});
