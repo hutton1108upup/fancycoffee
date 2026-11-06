@@ -7,9 +7,9 @@ import { VIDEO_ASSETS } from '../deploy/video-assets.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dist = join(root, 'dist');
 const dirs = ['about', 'blog', 'contact', 'cookie', 'fancy-cafe-pov-ideas', 'fancy-cafe-pov-meme-meaning', 'fancy-cafe-pov-trend-tiktok', 'first-time-in-a-fancy-cafe-ai-free', 'first-time-in-a-fancy-cafe-viral-video', 'fonts', 'how-to-make-first-time-in-a-fancy-cafe-ai-video', 'media', 'pricing', 'privacy', 'reference', 'refund', 'terms'];
-const files = ['brand.svg', 'manifest.json', 'og.png', 'robots.txt', 'local-studio.js', 'index.html'];
+const files = ['brand.svg', 'manifest.json', 'og.png', 'robots.txt', 'sitemap.xml', 'local-studio.js', 'analytics.js', 'index.html'];
 const publicExtensions = new Set(['.html', '.js', '.css', '.svg', '.png', '.webp', '.mp4', '.vtt', '.woff2', '.json']);
-function injectStudioScript(html) { return html.replace(/\s*<script\s+src=["']\/local-studio\.js["'][^>]*><\/script>/gi, '').replace('</body>', '<script src="/local-studio.js" defer></script></body>'); }
+function injectStudioScript(html) { return html.replace(/\s*<script\s+src=["']\/(?:local-studio|analytics)\.js["'][^>]*><\/script>/gi, '').replace('</body>', '<script src="/local-studio.js" defer></script><script src="/analytics.js" defer></script></body>'); }
 function copyTree(source, target) { mkdirSync(target, { recursive: true }); for (const entry of readdirSync(source)) { const from = join(source, entry); const to = join(target, entry); const info = lstatSync(from); if (info.isSymbolicLink()) throw new Error(`Refusing symlink in publish input: ${from}`); if (info.isDirectory()) copyTree(from, to); else if (publicExtensions.has(entry.slice(entry.lastIndexOf('.')).toLowerCase())) { if (entry.endsWith('.html')) { const html = injectStudioScript(readFileSync(from, 'utf8').replaceAll('Local preview:', 'Production preview:')); writeFileSync(to, html); } else copyFileSync(from, to); } } }
 if (dist === root || !dist.startsWith(root + '\\')) throw new Error(`Unsafe dist path: ${dist}`);
 rmSync(dist, { recursive: true, force: true });
