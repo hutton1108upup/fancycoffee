@@ -1,6 +1,7 @@
 import { VIDEO_ASSETS } from './video-assets.mjs';
 import { authConfigured, getSession, handleAuth, requireSameOriginAndCsrf } from './auth.mjs';
 import { getPaymentStatus, handlePayments } from './payments.mjs';
+import { handleGeneration } from './generation.mjs';
 
 const CANONICAL_HOST = 'fancycafeaivideo.pro';
 const MAX_RANGE_BYTES = 8 * 1024 * 1024;
@@ -87,12 +88,12 @@ export default {
     const url = new URL(request.url);
     if (url.hostname === `www.${CANONICAL_HOST}` || url.protocol === 'http:') return redirect(request);
     const paymentStatus = getPaymentStatus(env);
-    if (url.pathname === '/api/health') return json({ ok: true, mode: 'production-preview', providers: { ai: 'unconfigured', auth: authConfigured(env) ? 'configured' : 'unconfigured', payments: paymentStatus.checkoutEnabled ? 'configured' : 'unconfigured' }, checkoutEnabled: paymentStatus.checkoutEnabled, paymentMode: paymentStatus });
+    if (url.pathname === '/api/health') return json({ ok: true, mode: 'production-preview', providers: { ai: env.GENERATION_ENABLED === 'true' && Boolean(env.APIMART_API_KEY) ? 'configured' : 'unconfigured', auth: authConfigured(env) ? 'configured' : 'unconfigured', payments: paymentStatus.checkoutEnabled ? 'configured' : 'unconfigured' }, checkoutEnabled: paymentStatus.checkoutEnabled, paymentMode: paymentStatus, generation: { restrictedTest: env.WAFFO_MODE !== 'prod' && env.WAFFO_MODE !== 'production', quoteCny: env.GENERATION_QUOTE_CNY || null, quoteExpiresAt: env.GENERATION_QUOTE_EXPIRES_AT || null } });
     const authResponse = await handleAuth(request, env);
     if (authResponse) return authResponse;
     const paymentResponse = await handlePayments(request, env, { auth: { getSession, requireSameOriginAndCsrf } });
     if (paymentResponse) return paymentResponse;
-    if (url.pathname === '/api/generate') return json({ ok: false, code: 'PROVIDER_UNCONFIGURED', message: 'Video generation is not connected in this production preview. No video or credits were created.' }, 503);
+    if (url.pathname === '/api/generate' || url.pathname.startsWith('/api/generations/') || url.pathname.startsWith('/api/generation-inputs/')) return handleGeneration(request, env, { getSession, requireCsrf: requireSameOriginAndCsrf });
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) return json({ ok: false, code: 'NOT_FOUND', message: 'This preview endpoint is not connected.' }, 404);
     if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname.toLowerCase().endsWith('.mp4')) return serveMp4(request, env, url.pathname);
     return env.ASSETS.fetch(request);

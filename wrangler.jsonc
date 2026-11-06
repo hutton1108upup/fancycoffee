@@ -6,6 +6,9 @@
   "account_id": "7fd7ed1128ca3d125feaa279f4d4c547",
   "workers_dev": true,
   "assets": { "directory": "./dist", "binding": "ASSETS", "run_worker_first": true },
+  "r2_buckets": [
+    { "binding": "GENERATION_MEDIA", "bucket_name": "fancycoffee-generation-media" }
+  ],
   "d1_databases": [
     { "binding": "APP_DB", "database_name": "fancycoffee-app", "database_id": "d83f8e00-d458-4c81-9194-5c8c723c07ff", "migrations_dir": "migrations" },
     { "binding": "BILLING_TEST_DB", "database_name": "fancycoffee-billing-test", "database_id": "7446313f-634e-4e55-bef5-e8c0f21bf648", "migrations_dir": "migrations" }

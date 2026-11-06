@@ -23,14 +23,201 @@
   const pollOrder = async (orderId, panel) => { try { for (let i = 0; i < 5; i += 1) { const result = await api(`/api/orders/${encodeURIComponent(orderId)}`); if (result.response.ok && result.data?.order) { panel.textContent = renderOrderResult(result.data.order); if (['paid', 'fulfilled'].includes(result.data.order.status)) { setPending(null); const refreshed = await api('/api/billing'); if (refreshed.response.ok && refreshed.data) renderBilling(refreshed.data); return; } } await new Promise((resolve) => setTimeout(resolve, 1200)); } panel.textContent = 'Order status is still unknown. Payment is not confirmed; try checking order status again.'; } catch { panel.textContent = 'Could not verify order status. Payment is not confirmed; try again.'; } };
   const checkout = async (packId, button) => { if (!state.auth?.authenticated) { window.location.assign(`/auth/google/start?returnTo=${encodeURIComponent(relativeReturnTo())}`); return; } if (!state.csrfToken) { setFeedback('Checkout is unavailable because the session CSRF token is missing.', 'warning'); return; } const prior = getPending(); const requestId = prior?.packId === packId && prior?.userId === state.auth.user?.id ? prior.requestId : (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`); const pending = prior?.packId === packId && prior?.userId === state.auth.user?.id ? { ...prior, requestId } : { packId, requestId, userId: state.auth.user?.id }; button.disabled = true; try { setPending(pending); const result = await api('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrfToken }, body: JSON.stringify({ packId, requestId }) }); const orderId = result.data?.order?.orderId || result.data?.orderId; if (!result.response.ok) { if (orderId) { pending.orderId = orderId; setPending(pending); } throw new Error(result.data?.message || `Checkout unavailable (${result.data?.code || result.response.status}).`); } if (!result.data?.checkoutUrl && orderId) { const statusPanel = document.createElement('p'); statusPanel.className = 'local-feedback warning'; statusPanel.textContent = 'Existing order found. Checking server order status; no new checkout was created.'; (button.closest('.pack-action') || $('.pricing-section') || document.body).append(statusPanel); setPending({ ...pending, orderId }); await pollOrder(orderId, statusPanel); return; } if (!allowedCheckoutUrl(result.data?.checkoutUrl)) throw new Error('Hosted checkout is unavailable or is not an approved HTTPS Waffo URL.'); const statusPanel = document.createElement('p'); statusPanel.className = 'local-feedback warning'; statusPanel.textContent = `Checkout opened. Payment is not confirmed until the server reports order ${orderId || 'status'} as paid.`; (button.closest('.pack-action') || $('.pricing-section') || document.body).append(statusPanel); if (orderId) setPending({ ...pending, orderId }); window.location.assign(result.data.checkoutUrl); } catch (error) { state.lastCheckoutError = error?.message || 'unknown'; setPending(pending); setFeedback(error.message || 'Checkout is unavailable.', 'warning'); button.disabled = false; } };
   globalThis.__fancyCafeBilling = { allowedCheckoutUrl, renderOrderResult, setPending, getPending, checkout, updateServiceStatus, configure(options) { Object.assign(state, options); return state; } };
-  const wireBilling = async () => { try { const packsResult = await api('/api/credit-packs'); state.packsResult = packsResult.data; state.packs = Array.isArray(packsResult.data?.packs) ? packsResult.data.packs : []; updateServiceStatus(state.health, packsResult.data); const billingResult = state.auth?.authenticated ? await api('/api/billing') : { data: null }; const map = { 'buy-starter-v2': 'credits-20', 'buy-pro-v2': 'credits-60', 'buy-studio-v2': 'credits-200' }; document.querySelectorAll('[data-testid="buy-starter-v2"],[data-testid="buy-pro-v2"],[data-testid="buy-studio-v2"]').forEach((button) => { const packId = map[button.getAttribute('data-testid')]; button.dataset.packId = packId; button.onclick = () => checkout(packId, button); }); renderPackState(); if (billingResult.data) renderBilling(billingResult.data); const pending = getPending(); const orderId = new URLSearchParams(window.location.search).get('order') || pending?.orderId; if (orderId) { const panel = document.createElement('p'); panel.className = 'local-feedback warning'; panel.textContent = 'Checking server order status…'; document.body.prepend(panel); await pollOrder(orderId, panel); } if (paymentConfig().mode === 'test') { const note = document.createElement('p'); note.className = 'billing-panel billing-test'; note.textContent = 'Test mode: checkout and order status are not proof of a live charge.'; document.body.append(note); } } catch { updateServiceStatus(state.health, null); renderPackState(); } };
+  const wireBilling = async () => { try { const packsResult = await api('/api/credit-packs'); state.packsResult = packsResult.data; state.packs = Array.isArray(packsResult.data?.packs) ? packsResult.data.packs : []; updateServiceStatus(state.health, packsResult.data); const billingResult = state.auth?.authenticated ? await api('/api/billing') : { data: null }; const map = { 'buy-starter-v2': 'credits-20', 'buy-pro-v2': 'credits-60', 'buy-studio-v2': 'credits-200' }; document.querySelectorAll('[data-testid="buy-starter-v2"],[data-testid="buy-pro-v2"],[data-testid="buy-studio-v2"]').forEach((button) => { const packId = map[button.getAttribute('data-testid')]; button.dataset.packId = packId; button.onclick = () => checkout(packId, button); }); renderPackState(); if (billingResult.data) renderBilling(billingResult.data); const pending = getPending(); const orderId = new URLSearchParams(window.location.search).get('order') || pending?.orderId; if (orderId) { const panel = document.createElement('p'); panel.className = 'local-feedback warning'; panel.textContent = 'Checking server order status…'; document.body.prepend(panel); await pollOrder(orderId, panel); } if (paymentConfig().mode === 'test') { const note = document.createElement('p'); note.className = 'billing-panel billing-test'; note.textContent = 'Test mode: checkout and order status are not proof of a live charge.'; document.body.append(note); } } catch { updateServiceStatus(state.health, null); renderPackState(); } await restoreGeneration(); };
   const updateSettings = () => { const settings = $('[data-testid="video-settings"]'); if (settings) { settings.dataset.style = state.style; settings.dataset.resolution = state.resolution; settings.querySelectorAll('span')[1].innerHTML = `<strong>${costs[state.style][state.resolution]} credits</strong> per video`; } const button = $('[data-testid="generate-video"]'); if (button) { button.disabled = false; button.textContent = `Prepare video · ${costs[state.style][state.resolution]} credits`; button.removeAttribute('title'); } };
   const wirePhoto = (id, role) => { const input = document.getElementById(id); if (!input || input.dataset.localWired) return; input.dataset.localWired = 'true'; input.disabled = false; input.removeAttribute('title'); input.addEventListener('change', () => { const file = input.files?.[0]; const label = input.closest('label'); const old = label?.querySelector('.local-photo-preview'); if (!file || !allowed.has(file.type) || file.size <= 0 || file.size > maxBytes) { input.value = ''; state[role] = null; old?.remove(); if (label) { const strong = label.querySelector('strong'); if (strong) strong.textContent = 'Add photo'; } setFeedback(`${role === 'lead' ? 'First-timer' : 'Regular'} photo must be JPG, PNG or WebP and no larger than 10 MB.`, 'error'); return; } state[role] = file; if (label) label.querySelector('strong').textContent = file.name; old?.remove(); const img = document.createElement('img'); img.alt = `${role} photo preview`; img.src = URL.createObjectURL(file); img.className = 'local-photo-preview'; label?.prepend(img); setFeedback(`${role === 'lead' ? 'First-timer' : 'Regular'} photo ready.`, 'success'); }); };
+  const generationKey = (userId) => `fancycafe:generation:${userId}`;
+  const generationRead = (userId) => {
+    if (!userId) return null;
+    try { return JSON.parse(sessionStorage.getItem(generationKey(userId)) || 'null'); } catch { return null; }
+  };
+  const generationWrite = (userId, job) => {
+    if (!userId) return;
+    try {
+      if (job) sessionStorage.setItem(generationKey(userId), JSON.stringify(job));
+      else sessionStorage.removeItem(generationKey(userId));
+    } catch {}
+  };
+  const generationDownload = (value) => {
+    try {
+      const url = new URL(value, window.location.origin);
+      return url.origin === window.location.origin && (url.protocol === 'https:' || url.protocol === 'http:');
+    } catch { return false; }
+  };
+  const renderGeneration = (job) => {
+    if (!job) return;
+    if (job.status === 'completed' && (generationDownload(job.previewUrl) || generationDownload(job.downloadUrl))) {
+      const previewUrl = generationDownload(job.previewUrl) ? job.previewUrl : null;
+      const downloadUrl = generationDownload(job.downloadUrl) ? job.downloadUrl : null;
+      let video = $('[data-generation-video]');
+      if (!video) {
+        video = document.createElement('video');
+        video.dataset.generationVideo = '';
+        video.controls = true;
+        ($('.studio-action') || document.body).append(video);
+      }
+      if (previewUrl) {
+        video.src = previewUrl;
+        video.load();
+      }
+      let link = $('[data-generation-download]');
+      if (!link) {
+        link = document.createElement('a');
+        link.dataset.generationDownload = '';
+        link.className = 'cafe-text-link';
+        ($('.studio-action') || document.body).append(link);
+      }
+      if (downloadUrl) {
+        link.href = downloadUrl;
+        link.download = '';
+      }
+      link.textContent = 'Download completed MP4';
+      setFeedback('Video completed.', 'success');
+    } else if (job.status === 'failed') {
+      setFeedback(job.message || 'Video generation failed. No retry was started.', 'warning');
+    } else if (job.status === 'unknown') {
+      setFeedback('The server returned an unknown status. No retry was started.', 'warning');
+    } else {
+      setFeedback(`Video ${job.status || 'submitted'}…`);
+    }
+  };
+  const generationLatest = async (requestId) => {
+    const result = await api(`/api/generations/latest?requestId=${encodeURIComponent(requestId)}`);
+    return result.response.ok && result.data?.job?.requestId === requestId ? result.data.job : null;
+  };
+  const generationPoll = async (userId, job) => {
+    let current = job;
+    const statusButton = ensureGenerationStatusButton();
+    if (statusButton) statusButton.hidden = true;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      generationWrite(userId, current);
+      renderGeneration(current);
+      if (['completed', 'failed', 'unknown'].includes(current.status)) {
+        if (statusButton) statusButton.hidden = current.status !== 'unknown';
+        if (current.status === 'completed') {
+          const billing = await api('/api/billing');
+          if (billing.response.ok && billing.data) renderBilling(billing.data);
+        }
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        const result = await api(`/api/generations/${encodeURIComponent(current.id)}`);
+        if (result.response.ok && result.data?.job) current = result.data.job;
+      } catch {
+        const statusButton = $('[data-testid="check-video-status"]');
+        if (statusButton) statusButton.hidden = false;
+        setFeedback('Status check was interrupted. The job remains saved; use Check status to continue.', 'warning');
+        return;
+      }
+    }
+    const timeoutButton = $('[data-testid="check-video-status"]');
+    if (timeoutButton) timeoutButton.hidden = false;
+    setFeedback('This job is still processing. It remains saved; use Check status to continue.', 'warning');
+  };
+  const ensureGenerationStatusButton = () => {
+    const generateButton = $('[data-testid="generate-video"]');
+    if (!generateButton) return null;
+    let statusButton = $('[data-testid="check-video-status"]');
+    if (!statusButton) {
+      statusButton = document.createElement('button');
+      statusButton.type = 'button';
+      statusButton.dataset.testid = 'check-video-status';
+      statusButton.textContent = 'Check video status';
+      statusButton.hidden = true;
+      statusButton.addEventListener('click', () => restoreGeneration());
+      generateButton.parentElement?.append(statusButton);
+    }
+    return statusButton;
+  };
+  const restoreGeneration = async () => {
+    if (!$('[data-testid="generate-video"]')) return;
+    const userId = state.auth?.user?.id;
+    const saved = generationRead(userId);
+    if (!userId) return;
+    const job = saved?.status === 'completed'
+      ? saved
+      : saved?.requestId
+        ? await generationLatest(saved.requestId).catch(() => null)
+        : (await api('/api/generations/latest').catch(() => ({ response: { ok: false }, data: {} }))).data?.job;
+    if (job?.userId && job.userId !== userId) return;
+    if (job) await generationPoll(userId, job);
+    else if (saved?.requestId) { ensureGenerationStatusButton().hidden = false; setFeedback('Saved generation request was not found. No retry was started.', 'warning'); }
+  };
+  const wireGenerationController = () => {
+    const button = $('[data-testid="generate-video"]');
+    if (!button || button.dataset.generationController) return;
+    button.dataset.generationController = 'true';
+    button.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const userId = state.auth?.user?.id;
+      if (!state.auth?.authenticated) return window.location.assign(`/auth/google/start?returnTo=${encodeURIComponent(relativeReturnTo())}`);
+      if (!state.csrfToken || !state.lead) {
+        return setFeedback(!state.csrfToken
+          ? 'Generation is unavailable because the session CSRF token is missing.'
+          : 'Add the required first-timer photo before preparing a video.', 'warning');
+      }
+      const saved = generationRead(userId);
+      if (saved && !['completed', 'failed'].includes(saved.status)) {
+        return setFeedback('A video request is already in progress. No duplicate request was sent.', 'warning');
+      }
+      const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      generationWrite(userId, { requestId, userId, status: 'submitting' });
+      const body = new FormData();
+      body.append('lead', state.lead, state.lead.name);
+      if (state.regular) body.append('regular', state.regular, state.regular.name);
+      body.append('style', state.style);
+      body.append('resolution', state.resolution);
+      body.append('requestId', requestId);
+      button.disabled = true;
+      try {
+        const result = await api('/api/generate', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': state.csrfToken },
+          body,
+          timeoutMs: 15000,
+        });
+        let job = result.data?.job;
+        if (!result.response.ok && result.response.status < 500) {
+          generationWrite(userId, null);
+          return setFeedback(result.data?.message || result.data?.code || 'Video request was rejected.', 'error');
+        }
+        if (!result.response.ok || !job?.id) job = await generationLatest(requestId).catch(() => null);
+        if (!job) return setFeedback('Request status could not be confirmed. No retry was started; use Check status.', 'warning');
+        await generationPoll(userId, job);
+      } catch {
+        const job = await generationLatest(requestId).catch(() => null);
+        if (job) await generationPoll(userId, job);
+        else setFeedback('Request status could not be confirmed. No retry was started; use Check status.', 'warning');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  };
+  const wireTestCharacter = () => {
+    if (new URLSearchParams(window.location.search).get('sample') !== '1' || !state.auth?.authenticated) return;
+    const input = document.getElementById('photo-lead'); const parent = input?.closest('label');
+    if (!input || !parent || parent.querySelector('[data-testid="use-test-character"]')) return;
+    const button = document.createElement('button'); button.type = 'button'; button.dataset.testid = 'use-test-character'; button.className = 'cafe-text-link'; button.textContent = 'Use test character';
+    button.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/media/fancy-cafe/test-character.png', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error('test character unavailable');
+        const file = new File([await response.blob()], 'test-character.png', { type: 'image/png' });
+        if (typeof DataTransfer === 'function') { const transfer = new DataTransfer(); transfer.items.add(file); input.files = transfer.files; } else Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch { setFeedback('The test character could not be loaded.', 'warning'); }
+    });
+    parent.append(button);
+  };
   document.addEventListener('DOMContentLoaded', async () => {
     addStyles();
+    wireGenerationController();
     wirePhoto('photo-lead', 'lead');
     wirePhoto('photo-keyboard', 'regular');
     document.querySelectorAll('.studio-quality fieldset[disabled]').forEach((field) => field.removeAttribute('disabled'));
     ['[data-testid="video-style-standard"]', '[data-testid="video-style-closer"]', '[data-testid="video-resolution-480p"]', '[data-testid="video-resolution-720p"]', '[data-testid="generate-free-preview"]', '[data-testid="generate-video"]'].forEach((s) => { const node = $(s); if (node) { node.disabled = false; node.removeAttribute('title'); } });
-[['[data-testid="video-style-standard"]', 'standard'], ['[data-testid="video-style-closer"]', 'closer']].forEach(([selector, value]) => $(selector)?.addEventListener('click', () => { state.style = value; document.querySelectorAll('[data-testid^="video-style-"]').forEach((b) => b.setAttribute('aria-pressed', String(b === $(selector)))); updateSettings(); })); [['[data-testid="video-resolution-480p"]', '480p'], ['[data-testid="video-resolution-720p"]', '720p']].forEach(([selector, value]) => $(selector)?.addEventListener('click', () => { state.resolution = value; document.querySelectorAll('[data-testid^="video-resolution-"]').forEach((b) => b.setAttribute('aria-pressed', String(b === $(selector)))); updateSettings(); })); $('[data-testid="generate-free-preview"]')?.addEventListener('click', () => setFeedback('Free keyframe preview is unavailable until Google sign-in and an AI image provider are configured.', 'warning')); $('[data-testid="generate-video"]')?.addEventListener('click', async () => { if (!state.lead) return setFeedback('Add the required first-timer photo before preparing a video.', 'error'); const button = $('[data-testid="generate-video"]'); button.disabled = true; setFeedback('Checking the local generation boundary…'); const body = { style: state.style, resolution: state.resolution, lead: { type: state.lead.type, size: state.lead.size }, regular: state.regular ? { type: state.regular.type, size: state.regular.size } : null }; try { const response = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)  }); const data = await response.json(); setFeedback(data.message, data.code === 'PROVIDER_UNCONFIGURED' ? 'warning' : 'error'); } catch { setFeedback('Local server is unavailable. Start local-server.mjs and try again.', 'error'); } finally { button.disabled = false; } }); updateSettings(); await wireAuth(); await wireBilling(); });
+[['[data-testid="video-style-standard"]', 'standard'], ['[data-testid="video-style-closer"]', 'closer']].forEach(([selector, value]) => $(selector)?.addEventListener('click', () => { state.style = value; document.querySelectorAll('[data-testid^="video-style-"]').forEach((b) => b.setAttribute('aria-pressed', String(b === $(selector)))); updateSettings(); })); [['[data-testid="video-resolution-480p"]', '480p'], ['[data-testid="video-resolution-720p"]', '720p']].forEach(([selector, value]) => $(selector)?.addEventListener('click', () => { state.resolution = value; document.querySelectorAll('[data-testid^="video-resolution-"]').forEach((b) => b.setAttribute('aria-pressed', String(b === $(selector)))); updateSettings(); })); $('[data-testid="generate-free-preview"]')?.addEventListener('click', () => setFeedback('Free keyframe preview is unavailable until Google sign-in and an AI image provider are configured.', 'warning')); updateSettings(); await wireAuth(); wireTestCharacter(); await wireBilling(); await restoreGeneration(); });
+  globalThis.__fancyCafeGeneration = { sameOriginDownload: generationDownload, storageKey: generationKey, statusText: (job) => job.status === 'completed' ? 'Video completed.' : job.status === 'failed' ? (job.message || 'Video generation failed.') : job.status === 'unknown' ? 'The server returned an unknown status.' : `Video ${job.status || 'submitted'}…`, configure(options) { Object.assign(state, options); return state; }, restoreGeneration };
 })();

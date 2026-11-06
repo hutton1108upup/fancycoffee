@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-const MODEL = 'doubao-seedance-2.0';
+const MODEL = 'seedance-2.0';
 const DURATION_SECONDS = 15;
 const ASPECT_RATIO = '9:16';
 // Informational snapshot from the APIMart model page, not a billing guarantee.

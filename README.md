@@ -10,6 +10,8 @@
 
 正式 Worker 入口是 `deploy/worker.mjs`，正式认证和支付实现分别在 `deploy/auth.mjs`、`deploy/payments.mjs`，用户、OAuth flow、session 和正式账本使用 Cloudflare D1。两套边界不要混用，也不要把 Node 内存 session 当成线上持久化证明。
 
+生成账本由 `deploy/generation-store.mjs` 和 `migrations/0003_generation.sql` 提供持久化 reservation、provider task/result 状态、CAS 提交闸门和 owner/environment 隔离；它是状态与积分会计契约，不代表真实付费 provider 生成已完成。
+
 线上已创建并应用 schema：
 
 - `APP_DB`：`fancycoffee-app`，包含 `users`、`oauth_flows`、`sessions` 和 4 张支付表。

@@ -1,6 +1,6 @@
 # APIMart Seedance 2.0 adapter
 
-This adapter prepares a local dry-run payload for APIMart's documented `doubao-seedance-2.0` model:
+This adapter prepares a local dry-run payload for APIMart's current `seedance-2.0` model:
 
 - one required lead photo URL and one optional regular photo URL;
 - fixed 15-second, `9:16` output;
@@ -13,6 +13,17 @@ The client is fail-closed. `prepare()` returns a local payload and an informatio
 Submission is one-shot: a successful task enters `submitted`; timeout or 5xx enters `unknown` and blocks retries, preventing duplicate paid jobs. The caller may query the original task ID. Request timeouts are bounded and provider metadata/quotes are never sent in the provider JSON body.
 
 The submission state is held in process memory only. A restart cannot recover `submitting`, `submitted`, or `unknown`; a production integration must persist the normalized request hash, quote, provider task ID, and state in a server-side durable store before enabling paid work.
+
+The Worker-side durable contract is implemented separately in
+`deploy/generation-store.mjs` with `migrations/0003_generation.sql`. It keeps
+`generation_runs` in the current test or production billing database, reserves
+credits atomically, and exposes `claimGenerationSubmission()` so only one
+`reserved -> submitting` caller may contact a provider. `unknown` never returns
+to `submitting`; a known provider task ID cannot be replaced, and completed or
+failed terminal states cannot be moved backward. Use
+`getLatestGenerationRun(env, userId, requestId?)` for owner- and environment-
+scoped status reads. This is an accounting and state contract; it does not
+prove that a paid provider request or production generation has been completed.
 
 No upload or real-person review implementation is included. Inputs may be public `http(s)` URLs or already approved `asset://` references; local file paths are rejected. The prompt states that the first photo is the required first-timer and the optional second photo is person 2, but this local adapter does not verify identity, consent, approval, or image contents.
 

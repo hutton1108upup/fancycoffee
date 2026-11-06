@@ -4,7 +4,7 @@ import { createApimartSeedanceClient, estimate, estimateCostUsd, normalizeGenera
 const lead = { url: 'asset://approved-lead' };
 test('builds the official APIMart model payload without local metadata', () => {
   const result = estimate({ style: 'closer', resolution: '720p', lead, regular: { url: 'https://example.test/regular.jpg' } });
-  assert.equal(result.payload.model, 'doubao-seedance-2.0');
+  assert.equal(result.payload.model, 'seedance-2.0');
   assert.equal(result.payload.size, '9:16'); assert.equal(result.payload.duration, 15);
   assert.deepEqual(result.payload.image_urls, [lead.url, 'https://example.test/regular.jpg']);
   assert.match(result.payload.prompt, /fancy cafe/); assert.match(result.payload.prompt, /real people identities/);
@@ -31,7 +31,7 @@ test('authorized mock submission sends only provider fields and parses task ID',
   const client = createApimartSeedanceClient({ apiKey: 'test-key', accountConfirmed: true, configVerified: true, explicitRun: true, cnyQuote: quote, fetchImpl: async (url, options) => { calls.push({ url, options }); return new Response(JSON.stringify({ data: [{ status: 'submitted', task_id: 'task_123' }] }), { status: 200, headers: { 'content-type': 'application/json' } }); } });
   const result = await client.submit(input);
   assert.equal(result.taskId, 'task_123'); assert.equal(client.state, 'submitted');
-  const body = JSON.parse(calls[0].options.body); assert.equal(body.model, 'doubao-seedance-2.0'); assert.equal('meta' in body, false); assert.equal('quote' in body, false);
+  const body = JSON.parse(calls[0].options.body); assert.equal(body.model, 'seedance-2.0'); assert.equal('meta' in body, false); assert.equal('quote' in body, false);
   await assert.rejects(() => client.submit(input), { code: 'ALREADY_SUBMITTED' });
 });
 
