@@ -205,7 +205,7 @@
     if (new URLSearchParams(window.location.search).get('sample') !== '1' || !state.auth?.authenticated) return;
     const input = document.getElementById('photo-lead'); const parent = input?.closest('label');
     if (!input || !parent || parent.querySelector('[data-testid="use-test-character"]')) return;
-    const button = document.createElement('button'); button.type = 'button'; button.dataset.testid = 'use-test-character'; button.className = 'cafe-text-link'; button.textContent = 'Use test character';
+    const button = document.createElement('button'); button.type = 'button'; button.dataset.testid = 'use-test-character'; button.className = 'cafe-text-link'; button.textContent = 'Use example photo';
     button.addEventListener('click', async () => {
       try {
         const response = await fetch('/media/fancy-cafe/test-character.png', { credentials: 'same-origin' });
@@ -213,7 +213,7 @@
         const file = new File([await response.blob()], 'test-character.png', { type: 'image/png' });
         if (typeof DataTransfer === 'function') { const transfer = new DataTransfer(); transfer.items.add(file); input.files = transfer.files; } else Object.defineProperty(input, 'files', { configurable: true, value: [file] });
         input.dispatchEvent(new Event('change', { bubbles: true }));
-      } catch { setFeedback('The test character could not be loaded.', 'warning'); }
+      } catch { setFeedback('The example photo could not be loaded. Please try again.', 'warning'); }
     });
     parent.append(button);
   };
