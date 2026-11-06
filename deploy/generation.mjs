@@ -280,12 +280,13 @@ async function refreshJob(row, env, deps, database) {
   if (!trustedOutputUrl(outputUrl, env)) return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "PROVIDER_URL_UNTRUSTED", outputHost });
   let response;
   try {
-    response = await fetch(outputUrl, { signal: AbortSignal.timeout?.(15e3), redirect: "error" });
+    response = await fetch(outputUrl, { signal: AbortSignal.timeout?.(15e3), redirect: "manual" });
   } catch {
     return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "VIDEO_FETCH_RETRYABLE", outputHost });
   }
   const contentType = (response.headers.get("content-type") || "").toLowerCase().split(";", 1)[0];
   const declared = Number(response.headers.get("content-length"));
+  if (response.status >= 300 && response.status < 400) return recordDiagnostic(row, env, { providerStatus: "completed", deliveryState: "VIDEO_FETCH_RETRYABLE", outputHost, upstreamHttpStatus: response.status });
   if (!response.ok || contentType !== "video/mp4" && contentType !== "application/octet-stream" || Number.isFinite(declared) && declared > MAX_VIDEO_BYTES) {
     await updateGenerationRun(env, { runId: row.run_id, userId: row.user_id, status: "failed", errorCode: "INVALID_PROVIDER_VIDEO", resultMeta: { providerStatus: "completed", deliveryState: "VIDEO_FETCH_INVALID", outputHost, upstreamHttpStatus: response.status } });
     return { ...row, status: "failed", error_code: "INVALID_PROVIDER_VIDEO" };
