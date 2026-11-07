@@ -8,7 +8,9 @@ import { createSign, generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 import { handlePayments } from '../deploy/payments.mjs';
 
-const migration = readFileSync(fileURLToPath(new URL('../migrations/0002_payments.sql', import.meta.url)), 'utf8');
+const migrationV2 = readFileSync(fileURLToPath(new URL('../migrations/0002_payments.sql', import.meta.url)), 'utf8');
+const migrationV4 = readFileSync(fileURLToPath(new URL('../migrations/0004_paypal.sql', import.meta.url)), 'utf8');
+const migration = `${migrationV2}\n${migrationV4}`;
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privatePem = privateKey.export({ type: 'pkcs1', format: 'pem' });
 const publicPem = publicKey.export({ type: 'spki', format: 'pem' });
@@ -42,6 +44,15 @@ function checkoutRequest(requestId, packId = 'credits-20') { return new Request(
 function sign(raw) { const timestamp = String(Date.now()); return `t=${timestamp},v1=${createSign('RSA-SHA256').update(`${timestamp}.${raw}`).sign(privateKey, 'base64')}`; }
 function completedEvent(order, { paymentId = 'PAY_1', eventId = paymentId, chargedAmount = '9.99', taxAmount = '0.00', total = '9.99' } = {}) { return { eventType: 'order.completed', eventId, mode: 'test', storeId: 'STORE_TEST', data: { orderMerchantExternalId: order.orderId, orderStatus: 'completed', paymentStatus: 'succeeded', paymentId, currency: 'USD', chargedAmount, orderMetadata: { localOrderId: order.orderId, userId: order.userId, packId: order.packId, productId: order.productId }, listPrice: { subtotal: '9.99', taxAmount, total, discountAmount: '0.00' } } }; }
 async function postWebhook(db, event) { const raw = JSON.stringify(event); return handlePayments(new Request('https://fancycafeaivideo.pro/api/waffo/webhook/test', { method: 'POST', headers: { 'X-Waffo-Signature': sign(raw) }, body: raw }), env(db)); }
+
+test('0004 preserves a pre-existing Waffo order with the default provider', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(migrationV2);
+  db.prepare('INSERT INTO payment_orders (order_id, request_id, user_id, pack_id, product_id, currency, amount_cents, environment, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('OLD_ORDER', 'old-request', 'USER_OLD', 'credits-20', 'PROD_20', 'USD', 999, 'test', 'pending', new Date().toISOString(), new Date().toISOString());
+  db.exec(migrationV4);
+  assert.equal(db.prepare('SELECT payment_provider FROM payment_orders WHERE order_id = ?').get('OLD_ORDER').payment_provider, 'waffo');
+  db.close();
+});
 
 test('real SQLite D1 adapter allows one provider call for concurrent requestId and unknown retry', async () => {
   const temp = tempDb(); const db = new SqliteD1(temp.path); let calls = 0;
