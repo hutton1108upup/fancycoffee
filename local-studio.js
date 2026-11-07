@@ -24,7 +24,38 @@
   const setPending = (value) => storage.set(value);
   const getPending = () => storage.get();
   const renderOrderResult = (order) => { const status = order?.status; if (!status) return 'Order status is still unknown.'; if (status === 'paid' || status === 'fulfilled') return `Payment confirmed. ` + (order.packId || 'Credits') + ` are available after balance refresh.`; if (status === 'refund_pending') return 'Refund review is pending. Related credits are on hold; no additional payment confirmation will be attempted.'; return `Order status: ` + status + `. Payment is not confirmed.`; };
-  const pollOrder = async (orderId, panel) => { try { for (let i = 0; i < 5; i += 1) { const result = await api(`/api/orders/${encodeURIComponent(orderId)}`); if (result.response.ok && result.data?.order) { panel.textContent = renderOrderResult(result.data.order); if (['paid', 'fulfilled'].includes(result.data.order.status)) { setPending(null); const refreshed = await api('/api/billing'); if (refreshed.response.ok && refreshed.data) renderBilling(refreshed.data); return; } } await new Promise((resolve) => setTimeout(resolve, 1200)); } panel.textContent = 'Order status is still unknown. Payment is not confirmed; try checking order status again.'; } catch { panel.textContent = 'Could not verify order status. Payment is not confirmed; try again.'; } };
+  const pollOrder = async (orderId, panel) => {
+    let lastOrder = null;
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        const result = await api(`/api/orders/${encodeURIComponent(orderId)}`);
+        if (result.response.ok && result.data?.order) {
+          lastOrder = result.data.order;
+          panel.textContent = renderOrderResult(lastOrder);
+          const terminal = ['paid', 'fulfilled', 'refund_pending', 'failed'].includes(lastOrder.status);
+          if (terminal) {
+            setPending(null);
+            const refreshed = await api('/api/billing');
+            if (refreshed.response.ok && refreshed.data) renderBilling(refreshed.data);
+            return;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
+      if (lastOrder) {
+        panel.textContent = renderOrderResult(lastOrder);
+      } else {
+        panel.textContent = 'Order status is still unknown. Payment is not confirmed; try checking order status again.';
+      }
+    } catch {
+      if (lastOrder) {
+        panel.textContent = `${renderOrderResult(lastOrder)} Balance refresh failed; try again later.`;
+      } else {
+        panel.textContent = 'Could not verify order status. Payment is not confirmed; try again.';
+      }
+    }
+  };
+
   const checkout = async (packId, button) => {
     if (!state.auth?.authenticated) { window.location.assign(`/auth/google/start?returnTo=${encodeURIComponent(relativeReturnTo())}`); return; }
     if (!state.csrfToken) { setFeedback('Your session has expired. Please sign in again.', 'warning'); return; }
@@ -43,7 +74,7 @@
       const statusPanel = document.createElement('p'); statusPanel.className = 'local-feedback warning'; statusPanel.textContent = paymentProvider() === 'paypal' ? 'Continue in PayPal. Credits appear only after the server confirms capture.' : 'Complete your payment at checkout. Your credits will appear after payment is confirmed.'; (button.closest('.pack-action') || $('.pricing-section') || document.body).append(statusPanel); if (orderId) setPending({ ...pending, orderId, provider: paymentProvider(), needCapture: paymentProvider() === 'paypal' }); window.location.assign(result.data.checkoutUrl);
     } catch (error) { state.lastCheckoutError = error?.message || 'unknown'; setPending(pending); setFeedback(error.message || 'Checkout is unavailable.', 'warning'); button.disabled = false; }
   };
-  globalThis.__fancyCafeBilling = { allowedCheckoutUrl, allowedPaypalCheckoutUrl, renderOrderResult, setPending, getPending, checkout, updateServiceStatus, configure(options) { Object.assign(state, options); return state; } };
+  globalThis.__fancyCafeBilling = { allowedCheckoutUrl, allowedPaypalCheckoutUrl, renderOrderResult, pollOrder, setPending, getPending, checkout, updateServiceStatus, configure(options) { Object.assign(state, options); return state; } };
   const ensurePaypalStatusButton = (orderId, panel) => {
     let button = $('[data-testid="check-paypal-status"]');
     if (!button) {
