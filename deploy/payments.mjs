@@ -197,7 +197,7 @@ async function paypalWebhook(request, env, mode, deps) {
   if (!verified.ok) return json({ ok: false, code: verified.code }, verified.code === 'INVALID_JSON' ? 400 : 401);
   const event = verified.event;
   if (typeof event?.id !== 'string' || typeof event.event_type !== 'string') return json({ ok: false, code: 'INVALID_EVENT' }, 400);
-  const resource = extractPaypalWebhookResource(event);
+  const resource = extractPaypalWebhookResource(event, mode);
   let row = resource.providerOrderId ? await db.prepare('SELECT * FROM payment_orders WHERE provider_order_id = ? AND payment_provider = ? AND environment = ?').bind(resource.providerOrderId, 'paypal', mode).first() : null;
   if (!row && resource.captureId) row = await db.prepare('SELECT o.* FROM payment_orders o LEFT JOIN payment_fulfillments f ON f.order_id = o.order_id WHERE o.payment_provider = ? AND o.environment = ? AND (o.provider_capture_id = ? OR f.payment_id = ?)').bind('paypal', mode, resource.captureId, resource.captureId).first();
   if (!SUPPORTED_EVENTS.has(event.event_type)) {
