@@ -4,9 +4,10 @@
 
 ## 当前状态
 
-- PayPal sandbox 资源已创建，根 Agent 的 OAuth/webhook 预检已通过。
-- 站点付款仍等待根 Agent 完成真实站点验证；这不等于已经完成真实付款、退款或积分到账。
-- `migrations/0004_paypal.sql` 是 PayPal 订单、履约和 webhook 记录所需的增量 schema。
+- PayPal sandbox 资源已创建；真实 sandbox 买家付款、回站重复访问、取消订单、签名 webhook 与退款冻结已验证。
+- 验证覆盖：$9.99 订单到账 20 credits，重复回站不重复记账；$24.99 取消订单保持 pending 且不发 credits；退款 webhook 后订单为 `refund_pending`，20 credits 为 hold。以上不是正式真钱验证。
+- `migrations/0004_paypal.sql` 已应用到正式 `APP_DB` 与测试 `BILLING_TEST_DB`；旧 Waffo ledger 保留。
+- 正式 production 仍 disabled；当前 AI quote 已过期且 restrictedTest，不应视为可公开收费能力。
 - `APP_DB` 用于正式用户与正式账本；`BILLING_TEST_DB` 只用于测试账本。不要把测试订单写入正式库。
 - `WAFFO_MODE=prod|production` 选择 production，其他值选择 test；`BILLING_PROVIDER=paypal` 选择 PayPal，未满足配置时付款保持 disabled。
 
