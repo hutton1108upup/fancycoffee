@@ -22,20 +22,21 @@ export function paypalWebhookHeadersComplete(headers) {
   });
 }
 
-export function extractPaypalWebhookResource(event) {
+export function extractPaypalWebhookResource(event, mode = 'test') {
   const resource = event?.resource;
   const related = resource?.supplementary_data?.related_ids;
   const eventType = event?.event_type ?? '';
   let captureId = null;
   if (eventType === 'PAYMENT.CAPTURE.COMPLETED' || eventType === 'PAYMENT.CAPTURE.DECLINED' || eventType === 'PAYMENT.CAPTURE.DENIED' || eventType === 'PAYMENT.CAPTURE.PENDING') captureId = typeof resource?.id === 'string' ? resource.id : null;
-  else if (eventType.includes('REFUND') || eventType.endsWith('REVERSED')) captureId = typeof related?.capture_id === 'string' ? related.capture_id : null;
+  else if (eventType.includes('REFUND') || eventType.endsWith('REVERSED')) captureId = /^[A-Z0-9]+$/.test(related?.capture_id ?? '') ? related.capture_id : null;
   if (!captureId && (eventType.includes('REFUND') || eventType.endsWith('REVERSED')) && Array.isArray(resource?.links)) {
     const up = resource.links.find((link) => link?.rel === 'up');
     try {
       const url = new URL(up?.href ?? '');
-      if (url.protocol === 'https:' && (url.hostname === 'api-m.sandbox.paypal.com' || url.hostname === 'api-m.paypal.com')) {
-        const match = /^\/v2\/payments\/captures\/([^/]+)$/.exec(url.pathname);
-        captureId = match ? decodeURIComponent(match[1]) : null;
+      const hosts = mode === 'prod' ? new Set(['api.paypal.com', 'api-m.paypal.com']) : new Set(['api.sandbox.paypal.com', 'api-m.sandbox.paypal.com']);
+      if (url.protocol === 'https:' && hosts.has(url.hostname) && !url.username && !url.password && (url.port === '' || url.port === '443') && !url.search && !url.hash) {
+        const match = /^\/v2\/payments\/captures\/([A-Z0-9]+)$/.exec(url.pathname);
+        captureId = match ? match[1] : null;
       }
     } catch { captureId = null; }
   }

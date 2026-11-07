@@ -20,6 +20,9 @@ test('only approved HTTPS Waffo checkout hosts pass', () => {
 test('order result only confirms paid or fulfilled', () => {
   assert.match(billing.renderOrderResult({ status: 'paid', packId: 'credits-20' }), /Payment confirmed/);
   assert.match(billing.renderOrderResult({ status: 'fulfilled' }), /Payment confirmed/);
+  assert.match(billing.renderOrderResult({ status: 'refund_pending' }), /Refund review is pending/);
+  assert.match(billing.renderOrderResult({ status: 'refund_pending' }), /credits are on hold/);
+  assert.doesNotMatch(billing.renderOrderResult({ status: 'refund_pending' }), /unknown/);
   assert.match(billing.renderOrderResult({ status: 'pending' }), /not confirmed/);
   assert.match(billing.renderOrderResult({ status: 'checkout_unknown' }), /not confirmed/);
 });
