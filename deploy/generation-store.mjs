@@ -1,4 +1,5 @@
 const ACTIVE_STATUSES = "'reserved','submitting','submitted','unknown'";
+const HELD_CREDITS_SQL = "COALESCE((SELECT SUM(ledger.credits) FROM credit_ledger ledger JOIN payment_orders payment ON payment.order_id = ledger.order_id AND payment.user_id = ledger.user_id WHERE ledger.user_id = ? AND payment.status = 'refund_pending'), 0)";
 const VALID_STATUSES = /* @__PURE__ */ new Set(["reserved", "submitting", "submitted", "unknown", "failed", "completed"]);
 const TRANSITIONS = {
   reserved: /* @__PURE__ */ new Set(["submitting", "failed"]),
@@ -34,11 +35,12 @@ function sameOrNull(current, next) {
 async function getGenerationBalance(env, userId) {
   const mode = modeFor(env);
   const db = ensureDb(env, mode);
-  const row = await db.prepare(`SELECT COALESCE((SELECT SUM(credits) FROM credit_ledger WHERE user_id = ?), 0) AS paidCredits, COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status IN (${ACTIVE_STATUSES})), 0) AS reservedCredits, COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status = 'completed'), 0) AS deliveredCredits`).bind(userId, mode, userId, mode, userId).first();
+  const row = await db.prepare(`SELECT COALESCE((SELECT SUM(credits) FROM credit_ledger WHERE user_id = ?), 0) AS paidCredits, ${HELD_CREDITS_SQL} AS heldCredits, COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status IN (${ACTIVE_STATUSES})), 0) AS reservedCredits, COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status = 'completed'), 0) AS deliveredCredits`).bind(userId, userId, mode, userId, mode, userId).first();
   const paidCredits = Number(row?.paidCredits ?? 0);
+  const heldCredits = Number(row?.heldCredits ?? 0);
   const reservedCredits = Number(row?.reservedCredits ?? 0);
   const deliveredCredits = Number(row?.deliveredCredits ?? 0);
-  return { mode, paidCredits, reservedCredits, deliveredCredits, availableCredits: paidCredits - reservedCredits - deliveredCredits };
+  return { mode, paidCredits, heldCredits, reservedCredits, deliveredCredits, availableCredits: Math.max(0, paidCredits - heldCredits - reservedCredits - deliveredCredits) };
 }
 function validateInput(input) {
   if (!input || typeof input.userId !== "string" || typeof input.requestId !== "string" || typeof input.runId !== "string" || typeof input.inputFingerprint !== "string" || !Number.isSafeInteger(input.creditsRequired) || input.creditsRequired <= 0) throw inputError("INVALID_GENERATION_RESERVATION");
@@ -57,7 +59,7 @@ async function reserveGeneration(env, input) {
   const runConflict = await db.prepare("SELECT user_id FROM generation_runs WHERE environment = ? AND run_id = ?").bind(mode, input.runId).first();
   if (runConflict && runConflict.user_id !== input.userId) throw inputError("GENERATION_REQUEST_CONFLICT");
   const timestamp = now();
-  const statements = [db.prepare(`INSERT INTO generation_runs (run_id, user_id, request_id, input_fingerprint, environment, credits_required, status, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, 'reserved', ?, ? WHERE COALESCE((SELECT SUM(credits) FROM credit_ledger WHERE user_id = ?), 0) - COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status IN (${ACTIVE_STATUSES})), 0) - COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status = 'completed'), 0) >= ?`).bind(input.runId, input.userId, input.requestId, input.inputFingerprint, mode, input.creditsRequired, timestamp, timestamp, input.userId, mode, input.userId, mode, input.userId, input.creditsRequired)];
+  const statements = [db.prepare(`INSERT INTO generation_runs (run_id, user_id, request_id, input_fingerprint, environment, credits_required, status, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, 'reserved', ?, ? WHERE COALESCE((SELECT SUM(credits) FROM credit_ledger WHERE user_id = ?), 0) - ${HELD_CREDITS_SQL} - COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status IN (${ACTIVE_STATUSES})), 0) - COALESCE((SELECT SUM(credits_required) FROM generation_runs WHERE environment = ? AND user_id = ? AND status = 'completed'), 0) >= ?`).bind(input.runId, input.userId, input.requestId, input.inputFingerprint, mode, input.creditsRequired, timestamp, timestamp, input.userId, input.userId, mode, input.userId, mode, input.userId, input.creditsRequired)];
   if (authorizedRunId) statements.push(db.prepare("INSERT INTO generation_submission_guard (run_id, environment, created_at) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM generation_runs WHERE run_id = ? AND user_id = ? AND environment = ?) ON CONFLICT(run_id) DO NOTHING").bind(input.runId, mode, timestamp, input.runId, input.userId, mode));
   try {
     await db.batch(statements);

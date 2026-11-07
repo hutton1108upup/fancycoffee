@@ -33,6 +33,45 @@ test('reserves atomically under concurrent duplicate requests and isolates users
   db.close();
 }));
 
+test('temporarily holds credits for refund-pending orders and releases the hold after review', async () => withDb(async (path) => {
+  const db = new SqliteD1(path);
+  seedCredits(db, 'refund-user', 20);
+  db.db.prepare("UPDATE payment_orders SET status = 'refund_pending' WHERE order_id = ?").run('order-refund-user');
+
+  const held = await getGenerationBalance(env(db), 'refund-user');
+  assert.equal(held.paidCredits, 20);
+  assert.equal(held.heldCredits, 20);
+  assert.equal(held.availableCredits, 0);
+  await assert.rejects(() => reserveGeneration(env(db), input('refund-user', 'blocked-request', 'blocked-run', 1)), /INSUFFICIENT_CREDITS/);
+
+  db.db.prepare("UPDATE payment_orders SET status = 'paid' WHERE order_id = ?").run('order-refund-user');
+  const restored = await getGenerationBalance(env(db), 'refund-user');
+  assert.equal(restored.heldCredits, 0);
+  assert.equal(restored.availableCredits, 20);
+  await reserveGeneration(env(db), input('refund-user', 'restored-request', 'restored-run', 20));
+  db.close();
+}));
+
+test('holds only refund-pending ledger rows and does not double-count completed generations', async () => withDb(async (path) => {
+  const db = new SqliteD1(path);
+  seedCredits(db, 'mixed-user', 20);
+  const now = new Date().toISOString();
+  db.db.prepare("INSERT INTO payment_orders (order_id, request_id, user_id, pack_id, product_id, currency, amount_cents, environment, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)").run('order-paid-2', 'request-paid-2', 'mixed-user', 'credits-20', 'PROD_20', 'USD', 999, 'test', now, now);
+  db.db.prepare("INSERT INTO payment_fulfillments (payment_id, order_id, user_id, credits, event_type, event_id, created_at) VALUES (?, ?, ?, ?, 'order.completed', ?, ?)").run('payment-paid-2', 'order-paid-2', 'mixed-user', 20, 'event-paid-2', now);
+  db.db.prepare('INSERT INTO credit_ledger (user_id, order_id, payment_id, credits, created_at) VALUES (?, ?, ?, ?, ?)').run('mixed-user', 'order-paid-2', 'payment-paid-2', 20, now);
+  db.db.prepare("UPDATE payment_orders SET status = 'refund_pending' WHERE order_id = ?").run('order-mixed-user');
+  const run = await reserveGeneration(env(db), input('mixed-user', 'completed-request', 'completed-run', 10));
+  await claimGenerationSubmission(env(db), { runId: run.run.run_id, userId: 'mixed-user' });
+  await updateGenerationRun(env(db), { runId: 'completed-run', userId: 'mixed-user', status: 'submitted', providerTaskId: 'task-completed' });
+  await updateGenerationRun(env(db), { runId: 'completed-run', userId: 'mixed-user', status: 'completed', providerTaskId: 'task-completed', resultUrl: 'https://cdn.example/completed.mp4' });
+  const balance = await getGenerationBalance(env(db), 'mixed-user');
+  assert.equal(balance.paidCredits, 40);
+  assert.equal(balance.heldCredits, 20);
+  assert.equal(balance.deliveredCredits, 10);
+  assert.equal(balance.availableCredits, 10);
+  db.close();
+}));
+
 test('rejects changed input and run replay across users, then releases failed reservations and charges completed once', async () => withDb(async (path) => {
   const db = new SqliteD1(path); seedCredits(db, 'user-1', 20); const testEnv = env(db, { GENERATION_AUTHORIZED_RUN_ID: 'run-authorized' });
   await assert.rejects(() => reserveGeneration(testEnv, input('user-1', 'bad', 'other-run')), /GENERATION_RUN_NOT_AUTHORIZED/);
