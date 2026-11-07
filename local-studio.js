@@ -208,9 +208,9 @@
     const button = document.createElement('button'); button.type = 'button'; button.dataset.testid = 'use-test-character'; button.className = 'cafe-text-link'; button.textContent = 'Use example photo';
     button.addEventListener('click', async () => {
       try {
-        const response = await fetch('/media/fancy-cafe/test-character.png', { credentials: 'same-origin' });
+        const response = await fetch('/media/fancy-cafe/pet-poster.jpg', { credentials: 'same-origin' });
         if (!response.ok) throw new Error('test character unavailable');
-        const file = new File([await response.blob()], 'test-character.png', { type: 'image/png' });
+        const file = new File([await response.blob()], 'animal-example.jpg', { type: 'image/jpeg' });
         if (typeof DataTransfer === 'function') { const transfer = new DataTransfer(); transfer.items.add(file); input.files = transfer.files; } else Object.defineProperty(input, 'files', { configurable: true, value: [file] });
         input.dispatchEvent(new Event('change', { bubbles: true }));
       } catch { setFeedback('The example photo could not be loaded. Please try again.', 'warning'); }
@@ -218,6 +218,9 @@
     parent.append(button);
   };
   document.addEventListener('DOMContentLoaded', async () => {
+    document.querySelectorAll('.cafe-video-grid video').forEach((video) => video.addEventListener('play', () => {
+      document.querySelectorAll('.cafe-video-grid video').forEach((other) => { if (other !== video) other.pause(); });
+    }));
     addStyles();
     wireGenerationController();
     wirePhoto('photo-lead', 'lead');
