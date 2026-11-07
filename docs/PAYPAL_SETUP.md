@@ -40,12 +40,12 @@ sandbox API 是 `https://api-m.sandbox.paypal.com`，production API 是 `https:/
 ## 配置步骤
 
 1. 由已确认的 Cloudflare 账号为对应 Worker 设置上述 secrets，并核对 `APP_DB` 与 `BILLING_TEST_DB` 的绑定。
-2. 在目标 D1 分别应用 `migrations/0004_paypal.sql`，保持正式库与测试库隔离。
+2. `migrations/0004_paypal.sql` 已在目标 D1 各应用一次；后续部署不要重复执行同一迁移，保持正式库与测试库隔离。
 3. 在 PayPal Developer Dashboard 创建 sandbox 应用和 webhook；把私有结果保存到 `.secrets/paypal-sandbox.json`，不要提交或粘贴其内容。
 4. 用已批准的私有 JSON 运行 `.data/paypal-sandbox-preflight.mjs <path>`。脚本只输出安全摘要，不打印 token、client secret 或原始响应。
-5. 先完成 sandbox 真实回站、重复回站、取消、webhook 和退款/撤销审核验证，再单独配置 production；当前正式付款仍以“待根 Agent 验证”为准。正式启用 production 前，明确将 `PAYPAL_PRODUCTION_ENABLED` 改为 `true`。
+5. sandbox 的真实回站、重复回站、取消、签名 webhook 和退款冻结已经验证；撤销仅有自动测试覆盖，尚未用真实订单验证。production 正式真钱仍未启用或验证。正式启用 production 前，明确将 `PAYPAL_PRODUCTION_ENABLED` 改为 `true`。
 
 ## 退款与积分
 
-PayPal 退款/撤销 webhook 会把订单置为 `refund_pending`/`pending_review`。相关积分会保持冻结或 hold，接口返回真实的 `heldCredits` 时前端会显示冻结数量；系统不会自动替用户发起退款，也不会把待审核状态说成已退款。退款、撤销和积分最终状态仍需真实 PayPal 流程验证。
+PayPal 退款/撤销 webhook 会把订单置为 `refund_pending`/`pending_review`。sandbox 退款后冻结积分的流程已真实验证；相关积分会保持冻结或 hold，接口返回真实的 `heldCredits` 时前端会显示冻结数量。系统不会自动替用户发起退款，也不会把待审核状态说成已退款。production 真钱和人工最终审核流程尚未验证。
 
