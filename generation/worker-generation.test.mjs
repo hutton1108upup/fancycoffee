@@ -19,10 +19,36 @@ function form(requestId = 'request-123') { const value = new FormData(); value.s
 function env(extra = {}) { return { WAFFO_MODE: 'test', GENERATION_ENABLED: 'true', APIMART_API_KEY: 'test-only', GENERATION_AUTHORIZED_RUN_ID: 'run-1', GENERATION_ALLOWED_EMAILS: 'duckweed1014@gmail.com', GENERATION_QUOTE_USD: '0.99', GENERATION_QUOTE_CNY: '7', GENERATION_FX_USD_TO_CNY: '7.1', GENERATION_QUOTE_EXPIRES_AT: '2099-01-01T00:00:00Z', GENERATION_INPUT_ORIGIN: 'https://input.example.test', GENERATION_INPUT_SIGNING_SECRET: 'test-signing-secret', ...extra }; }
 function runtime(store, extra = {}) { return env({ BILLING_TEST_DB: store, ...extra }); }
 function deps(store, provider) { return { db: store, session: { userId: 'user-1', email: 'duckweed1014@gmail.com' }, requireCsrf: async () => true, putInput: async () => {}, provider }; }
+function depsFor(store, provider, userId, email = 'unlisted@example.com') { return { db: store, session: { userId, email }, requireCsrf: async () => true, putInput: async () => {}, provider }; }
 function req(value, path = '/api/generate') { return new Request(`https://fancycafeaivideo.pro${path}`, { method: path === '/api/generate' ? 'POST' : 'GET', body: path === '/api/generate' ? value : undefined }); }
 function templateForm(template, requestId = 'request-template') { const value = form(requestId); value.set('template', template); return value; }
 
 test('uses generation_runs reservation and submits official 480p image-only payload', async () => { const store = db(); let payload; const response = await handleGeneration(req(form()), runtime(store), deps(store, { submit: async (body) => { payload = body; return { taskId: 'task-1' }; }, getTask: async () => ({ status: 'processing' }) })); const body = await response.json(); assert.equal(response.status, 202); assert.equal(body.job.id, 'run-1'); assert.equal(payload.model, 'seedance-2.0'); assert.equal(payload.resolution, '480p'); assert.equal(payload.duration, 15); assert.equal(store.database.prepare('SELECT status FROM generation_runs WHERE run_id = ?').get('run-1').status, 'submitted'); });
+
+test('production derives independent owner/request run IDs, allows templates without controlled hash, and deduplicates same request', async () => {
+  const store = db(); const now = new Date().toISOString();
+  store.database.prepare("INSERT INTO payment_orders (order_id, request_id, user_id, pack_id, product_id, currency, amount_cents, environment, status, created_at, updated_at) VALUES ('seed-order-2', 'seed-request-2', 'user-2', 'credits-20', 'PROD_20', 'USD', 999, 'prod', 'paid', ?, ?)").run(now, now);
+  store.database.prepare("INSERT INTO payment_fulfillments (payment_id, order_id, user_id, credits, event_type, event_id, created_at) VALUES ('seed-payment-2', 'seed-order-2', 'user-2', 100, 'order.completed', 'seed-event-2', ?)").run(now);
+  store.database.prepare("INSERT INTO credit_ledger (user_id, order_id, payment_id, credits, created_at) VALUES ('user-2', 'seed-order-2', 'seed-payment-2', 100, ?)").run(now);
+  let calls = 0;
+  const provider = { submit: async () => ({ taskId: `task-prod-${++calls}` }), getTask: async () => ({ status: 'processing' }) };
+  const prod = runtime(store, { WAFFO_MODE: 'prod', APP_DB: store, GENERATION_ALLOWED_EMAILS: '', GENERATION_AUTHORIZED_REQUEST_SHA256: '', GENERATION_PERSON_RATE_USD_PER_SECOND: '0.04', GENERATION_PET_RATE_USD_PER_SECOND: '0.066', GENERATION_FX_USD_TO_CNY: '8', GENERATION_QUOTE_EXPIRES_AT: '2099-01-01T00:00:00Z' });
+  const first = await handleGeneration(req(templateForm('pet', 'prod-user-1')), prod, depsFor(store, provider, 'user-1'));
+  const second = await handleGeneration(req(templateForm('pet', 'prod-user-2')), prod, depsFor(store, provider, 'user-2'));
+  const duplicate = await handleGeneration(req(templateForm('pet', 'prod-user-1')), prod, depsFor(store, provider, 'user-1'));
+  const firstJob = await first.json(); const secondJob = await second.json(); const duplicateJob = await duplicate.json();
+  assert.equal(first.status, 202); assert.equal(second.status, 202); assert.equal(duplicateJob.duplicate, true); assert.equal(calls, 2); assert.notEqual(firstJob.job.id, secondJob.job.id); assert.match(firstJob.job.id, /^[a-f0-9]{64}$/);
+});
+
+test('production rejects legacy no-template requests and does not call provider without credits', async () => {
+  const store = db(); store.database.prepare('DELETE FROM credit_ledger').run(); let calls = 0;
+  const provider = { submit: async () => { calls += 1; return { taskId: 'must-not-submit' }; } };
+  const prod = runtime(store, { WAFFO_MODE: 'prod', APP_DB: store, GENERATION_ALLOWED_EMAILS: '', GENERATION_AUTHORIZED_REQUEST_SHA256: '', GENERATION_PERSON_RATE_USD_PER_SECOND: '0.04', GENERATION_PET_RATE_USD_PER_SECOND: '0.066', GENERATION_FX_USD_TO_CNY: '8', GENERATION_QUOTE_EXPIRES_AT: '2099-01-01T00:00:00Z' });
+  const legacy = await handleGeneration(req(form('prod-legacy')), prod, depsFor(store, provider, 'user-1'));
+  assert.equal(legacy.status, 400); assert.equal(calls, 0);
+  const insufficient = await handleGeneration(req(templateForm('pet', 'prod-empty')), prod, depsFor(store, provider, 'user-1'));
+  assert.equal(insufficient.status, 402); assert.equal((await insufficient.json()).code, 'INSUFFICIENT_CREDITS'); assert.equal(calls, 0);
+});
 
 test('person template uses only the approved hashed MP4 reference and binds the authorized request', async () => {
   const store = db();
