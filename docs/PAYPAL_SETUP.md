@@ -7,7 +7,11 @@
 - PayPal sandbox 资源已创建；真实 sandbox 买家付款、回站重复访问、取消订单、签名 webhook 与退款冻结已验证。
 - 验证覆盖：$9.99 订单到账 20 credits，重复回站不重复记账；$24.99 取消订单保持 pending 且不发 credits；退款 webhook 后订单为 `refund_pending`，20 credits 为 hold。以上不是正式真钱验证。
 - `migrations/0004_paypal.sql` 已应用到正式 `APP_DB` 与测试 `BILLING_TEST_DB`；旧 Waffo ledger 保留。
+- 2026-11-08 已在既有中国账户创建唯一 Fancy Cafe AI Live 资源；正式 webhook 已创建并完成只读预检。不要重新创建应用或重复迁移。
+- Live 预检结果：OAuth 有效、webhook HTTP 200、ID 和 URL 匹配，缺失事件与意外事件均为空。预检不创建订单，也不代表真实收款已验证。
 - 正式 production 仍 disabled；当前 AI quote 已过期且 restrictedTest，不应视为可公开收费能力。
+- 当前 Worker secrets 已写入 Cloudflare Worker：四项 `PAYPAL_PRODUCTION_*`（client ID、client secret、merchant ID、webhook ID）、`PAYPAL_PRODUCTION_ENABLED=false`，以及 `WAFFO_MODE=test`。本文不记录 secret 值或 client ID。
+- `health.paymentMode.productionConfigured` 只有在正式凭据齐全且生产开关打开时才为 `true`；本次保持 `false` 是因为生产开关关闭，正式凭据已单独验证并保存。
 - `APP_DB` 用于正式用户与正式账本；`BILLING_TEST_DB` 只用于测试账本。不要把测试订单写入正式库。
 - `WAFFO_MODE=prod|production` 选择 production，其他值选择 test；`BILLING_PROVIDER=paypal` 选择 PayPal，未满足配置时付款保持 disabled。
 
@@ -39,11 +43,11 @@ sandbox API 是 `https://api-m.sandbox.paypal.com`，production API 是 `https:/
 
 ## 配置步骤
 
-1. 由已确认的 Cloudflare 账号为对应 Worker 设置上述 secrets，并核对 `APP_DB` 与 `BILLING_TEST_DB` 的绑定。
+1. 现有 Fancy Cafe AI Live 已创建；后续操作先读取并核对现有应用和 webhook，不要再次创建同名应用、重复迁移或替换既有资源。
 2. `migrations/0004_paypal.sql` 已在目标 D1 各应用一次；后续部署不要重复执行同一迁移，保持正式库与测试库隔离。
-3. 在 PayPal Developer Dashboard 创建 sandbox 应用和 webhook；把私有结果保存到 `.secrets/paypal-sandbox.json`，不要提交或粘贴其内容。
-4. 用已批准的私有 JSON 运行 `.data/paypal-sandbox-preflight.mjs <path>`。脚本只输出安全摘要，不打印 token、client secret 或原始响应。
-5. sandbox 的真实回站、重复回站、取消、签名 webhook 和退款冻结已经验证；撤销仅有自动测试覆盖，尚未用真实订单验证。production 正式真钱仍未启用或验证。正式启用 production 前，明确将 `PAYPAL_PRODUCTION_ENABLED` 改为 `true`。
+3. Sandbox 与 Live 应用均已存在；不要重复新建。把私有结果分别保存到 `.secrets/paypal-sandbox.json` 和 `.secrets/paypal-production.json`，不要提交或粘贴其内容。
+4. 用已批准的私有 JSON 运行 `.data/paypal-sandbox-preflight.mjs <path>` 或 `.data/paypal-production-preflight.mjs <path>`。这些脚本是 ignored 的本地维护工具，只输出安全摘要；production 预检只做 OAuth 和 GET webhook 配置，不创建订单，不执行 capture/refund。
+5. sandbox 的真实回站、重复回站、取消、签名 webhook 和退款冻结已经验证；撤销仅有自动测试覆盖，尚未用真实订单验证。production 正式真钱仍未启用或验证。正式启用 production 前，明确将 `PAYPAL_PRODUCTION_ENABLED` 改为 `true`，并另行验收真实订单、capture、回调和退款。
 
 ## 退款与积分
 
