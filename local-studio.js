@@ -1,7 +1,7 @@
 (() => {
   const maxBytes = 10 * 1024 * 1024;
   const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
-  const state = { style: 'standard', resolution: '480p', lead: null, regular: null, auth: null, health: null, packs: [], csrfToken: '' };
+  const state = { template: 'person', style: 'standard', resolution: '480p', lead: null, regular: null, auth: null, health: null, packs: [], csrfToken: '' };
   const costs = { standard: { '480p': 20, '720p': 40 }, closer: { '480p': 30, '720p': 50 } };
   const $ = (s) => document.querySelector(s);
   const setFeedback = (message, kind = 'info') => { let node = $('[data-local-feedback]'); if (!node) { node = document.createElement('p'); node.dataset.localFeedback = ''; ($('.studio-action') || $('.pricing-section') || document.body)?.prepend(node); } node.textContent = message; node.className = `local-feedback ${kind}`; };
@@ -135,8 +135,9 @@
   globalThis.__fancyCafeBilling.checkPaypalPayment = checkPaypalPayment;
   globalThis.__fancyCafeBilling.handlePaypalReturn = handlePaypalReturn;
   const wireBilling = async () => { try { const packsResult = await api('/api/credit-packs'); state.packsResult = packsResult.data; state.packs = Array.isArray(packsResult.data?.packs) ? packsResult.data.packs : []; updateServiceStatus(state.health, packsResult.data); const billingResult = state.auth?.authenticated ? await api('/api/billing') : { data: null }; const map = { 'buy-starter-v2': 'credits-20', 'buy-pro-v2': 'credits-60', 'buy-studio-v2': 'credits-200' }; document.querySelectorAll('[data-testid="buy-starter-v2"],[data-testid="buy-pro-v2"],[data-testid="buy-studio-v2"]').forEach((button) => { const packId = map[button.getAttribute('data-testid')]; button.dataset.packId = packId; button.onclick = () => checkout(packId, button); }); renderPackState(); if (billingResult.data) renderBilling(billingResult.data); const paypalHandled = await handlePaypalReturn(); const pending = getPending(); const orderId = new URLSearchParams(window.location.search).get('order') || pending?.orderId; if (orderId && !paypalHandled) { const panel = document.createElement('p'); panel.className = 'local-feedback warning'; panel.textContent = 'Checking your order status…'; document.body.prepend(panel); await pollOrder(orderId, panel); }  } catch { updateServiceStatus(state.health, null); renderPackState(); } await restoreGeneration(); };
-  const updateSettings = () => { const settings = $('[data-testid="video-settings"]'); if (settings) { settings.dataset.style = state.style; settings.dataset.resolution = state.resolution; settings.querySelectorAll('span')[1].innerHTML = `<strong>${costs[state.style][state.resolution]} credits</strong> per video`; } const button = $('[data-testid="generate-video"]'); if (button) { button.disabled = false; button.textContent = `Prepare video · ${costs[state.style][state.resolution]} credits`; button.removeAttribute('title'); } };
-  const wirePhoto = (id, role) => { const input = document.getElementById(id); if (!input || input.dataset.localWired) return; input.dataset.localWired = 'true'; input.disabled = false; input.removeAttribute('title'); input.addEventListener('change', () => { const file = input.files?.[0]; const label = input.closest('label'); const old = label?.querySelector('.local-photo-preview'); if (!file || !allowed.has(file.type) || file.size <= 0 || file.size > maxBytes) { input.value = ''; state[role] = null; old?.remove(); if (label) { const strong = label.querySelector('strong'); if (strong) strong.textContent = 'Add photo'; } setFeedback(`${role === 'lead' ? 'First-timer' : 'Regular'} photo must be JPG, PNG or WebP and no larger than 10 MB.`, 'error'); return; } state[role] = file; if (label) label.querySelector('strong').textContent = file.name; old?.remove(); const img = document.createElement('img'); img.alt = `${role} photo preview`; img.src = URL.createObjectURL(file); img.className = 'local-photo-preview'; label?.prepend(img); setFeedback(`${role === 'lead' ? 'First-timer' : 'Regular'} photo ready.`, 'success'); }); };
+  const applyTemplate = (template) => { state.template = template === 'pet' ? 'pet' : 'person'; document.querySelectorAll('[data-testid^="video-template-"]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.testid === `video-template-${state.template}`))); const input = document.getElementById('photo-lead'); const selectedFile = input?.files?.[0] || state.lead; const strong = input?.closest?.('label')?.querySelector('strong'); if (strong) strong.textContent = selectedFile?.name || (state.template === 'pet' ? 'Add pet photo' : 'Add person photo'); const help = $('[data-template-help]'); if (help) help.textContent = state.template === 'pet' ? 'Pet test mode: upload one pet photo or use the pet example.' : 'Person mode: upload an authorized adult photo.'; };
+  const updateSettings = () => { state.style = 'standard'; state.resolution = '480p'; const settings = $('[data-testid="video-settings"]'); if (settings) { settings.dataset.style = state.style; settings.dataset.resolution = state.resolution; settings.querySelectorAll('span')[1].innerHTML = `<strong>${costs.standard['480p']} credits</strong> per video`; } const button = $('[data-testid="generate-video"]'); if (button) { button.disabled = false; button.textContent = `Prepare ${state.template} video · 20 credits`; button.removeAttribute('title'); } };
+  const wirePhoto = (id, role) => { const input = document.getElementById(id); if (!input || input.dataset.localWired) return; input.dataset.localWired = 'true'; input.disabled = false; input.removeAttribute('title'); input.addEventListener('change', () => { const file = input.files?.[0]; const label = input.closest('label'); const old = label?.querySelector('.local-photo-preview'); if (!file || !allowed.has(file.type) || file.size <= 0 || file.size > maxBytes) { input.value = ''; state[role] = null; old?.remove(); if (label) { const strong = label.querySelector('strong'); if (strong) strong.textContent = role === 'lead' && state.template === 'pet' ? 'Add pet photo' : role === 'lead' ? 'Add person photo' : 'Add photo'; } setFeedback(`${role === 'lead' ? (state.template === 'pet' ? 'Pet' : 'Person') : 'Regular'} photo must be JPG, PNG or WebP and no larger than 10 MB.`, 'error'); return; } state[role] = file; if (label) label.querySelector('strong').textContent = file.name; old?.remove(); const img = document.createElement('img'); img.alt = `${role} photo preview`; img.src = URL.createObjectURL(file); img.className = 'local-photo-preview'; label?.prepend(img); setFeedback(`${role === 'lead' ? (state.template === 'pet' ? 'Pet' : 'Person') : 'Regular'} photo ready.`, 'success'); }); };
   const generationKey = (userId) => `fancycafe:generation:${userId}`;
   const generationRead = (userId) => {
     if (!userId) return null;
@@ -283,9 +284,9 @@
       generationWrite(userId, { requestId, userId, status: 'submitting' });
       const body = new FormData();
       body.append('lead', state.lead, state.lead.name);
-      if (state.regular) body.append('regular', state.regular, state.regular.name);
       body.append('style', state.style);
       body.append('resolution', state.resolution);
+      body.append('template', state.template);
       body.append('requestId', requestId);
       button.disabled = true;
       try {
@@ -321,6 +322,8 @@
       try {
         const response = await fetch('/media/fancy-cafe/pet-poster.jpg', { credentials: 'same-origin' });
         if (!response.ok) throw new Error('test character unavailable');
+        applyTemplate('pet');
+        updateSettings();
         const file = new File([await response.blob()], 'animal-example.jpg', { type: 'image/jpeg' });
         if (typeof DataTransfer === 'function') { const transfer = new DataTransfer(); transfer.items.add(file); input.files = transfer.files; } else Object.defineProperty(input, 'files', { configurable: true, value: [file] });
         input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -336,8 +339,19 @@
     wireGenerationController();
     wirePhoto('photo-lead', 'lead');
     wirePhoto('photo-keyboard', 'regular');
+    const optionalCast = document.querySelector('.band-optional');
+    if (optionalCast) optionalCast.hidden = true;
+    [['[data-testid="video-template-person"]', 'person'], ['[data-testid="video-template-pet"]', 'pet']].forEach(([selector, template]) => $(selector)?.addEventListener('click', () => { applyTemplate(template); updateSettings(); }));
     document.querySelectorAll('.studio-quality fieldset[disabled]').forEach((field) => field.removeAttribute('disabled'));
-    ['[data-testid="video-style-standard"]', '[data-testid="video-style-closer"]', '[data-testid="video-resolution-480p"]', '[data-testid="video-resolution-720p"]', '[data-testid="generate-free-preview"]', '[data-testid="generate-video"]'].forEach((s) => { const node = $(s); if (node) { node.disabled = false; node.removeAttribute('title'); } });
-[['[data-testid="video-style-standard"]', 'standard'], ['[data-testid="video-style-closer"]', 'closer']].forEach(([selector, value]) => $(selector)?.addEventListener('click', () => { state.style = value; document.querySelectorAll('[data-testid^="video-style-"]').forEach((b) => b.setAttribute('aria-pressed', String(b === $(selector)))); updateSettings(); })); [['[data-testid="video-resolution-480p"]', '480p'], ['[data-testid="video-resolution-720p"]', '720p']].forEach(([selector, value]) => $(selector)?.addEventListener('click', () => { state.resolution = value; document.querySelectorAll('[data-testid^="video-resolution-"]').forEach((b) => b.setAttribute('aria-pressed', String(b === $(selector)))); updateSettings(); })); $('[data-testid="generate-free-preview"]')?.addEventListener('click', () => setFeedback('Unable to create your preview. Please try again later.', 'warning')); updateSettings(); await wireAuth(); wireTestCharacter(); await wireBilling(); await restoreGeneration(); });
+    ['[data-testid="video-style-standard"]', '[data-testid="video-resolution-480p"]', '[data-testid="generate-video"]'].forEach((s) => { const node = $(s); if (node) { node.disabled = false; node.removeAttribute('title'); } });
+    const previewButton = $('[data-testid="generate-free-preview"]');
+    if (previewButton) { previewButton.disabled = true; previewButton.title = 'Free image preview is not open in the current test.'; }
+    ['[data-testid="video-style-closer"]', '[data-testid="video-resolution-720p"]'].forEach((s) => { const node = $(s); if (node) { node.disabled = true; node.title = 'Only Standard 480p is available in the current test mode.'; } });
+    applyTemplate('person');
+    $('[data-testid="video-style-standard"]')?.addEventListener('click', () => { state.style = 'standard'; updateSettings(); });
+    $('[data-testid="video-resolution-480p"]')?.addEventListener('click', () => { state.resolution = '480p'; updateSettings(); });
+    $('[data-testid="video-style-closer"]')?.addEventListener('click', () => setFeedback('Closer to original is unavailable in the current test mode.', 'warning'));
+    $('[data-testid="video-resolution-720p"]')?.addEventListener('click', () => setFeedback('720p is unavailable in the current test mode.', 'warning'));
+    updateSettings(); await wireAuth(); wireTestCharacter(); await wireBilling(); await restoreGeneration(); });
   globalThis.__fancyCafeGeneration = { sameOriginDownload: generationDownload, storageKey: generationKey, statusText: (job) => job.status === 'completed' ? 'Video completed.' : job.status === 'failed' ? (job.message || 'Video generation failed.') : job.status === 'unknown' ? 'The server returned an unknown status.' : `Video ${job.status || 'submitted'}…`, configure(options) { Object.assign(state, options); return state; }, restoreGeneration };
 })();

@@ -1,10 +1,12 @@
 import { claimGenerationSubmission, getGenerationRun, getLatestGenerationRun, reserveGeneration, updateGenerationRun } from "./generation-store.mjs";
+import { PERSON_REFERENCE_MAX_SECONDS, TEMPLATE_VERSION, canonicalTemplateRequest, templateFingerprint, templateName, templatePayload, templateQuote } from "../generation/templates.mjs";
 const MODEL = "seedance-2.0";
 const DURATION = 15;
 const SIZE = "9:16";
 const RESOLUTION = "480p";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 32 * 1024 * 1024;
+const MAX_REFERENCE_VIDEO_BYTES = 32 * 1024 * 1024;
 const ALLOWED_EMAILS = "GENERATION_ALLOWED_EMAILS";
 class GenerationHttpError extends Error {
   constructor(code, message, status = 400, details = {}) {
@@ -48,6 +50,12 @@ async function sha256Bytes(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+async function readObjectBytes(object, limit) {
+  if (!object) throw new GenerationHttpError("GENERATION_PERSON_REFERENCE_UNAVAILABLE", "The approved person reference is unavailable.", 503);
+  if (object instanceof Uint8Array) return object.byteLength <= limit ? object : (() => { throw new GenerationHttpError("GENERATION_PERSON_REFERENCE_INVALID", "The approved person reference is too large.", 503); })();
+  if (object instanceof ArrayBuffer) return object.byteLength <= limit ? new Uint8Array(object) : (() => { throw new GenerationHttpError("GENERATION_PERSON_REFERENCE_INVALID", "The approved person reference is too large.", 503); })();
+  return readLimited(new Response(object.body || object), limit);
+}
 async function readLimited(response, limit) {
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
@@ -86,6 +94,31 @@ function quote(env) {
   const expires = Date.parse(env?.GENERATION_QUOTE_EXPIRES_AT || "");
   if (![usd, cny, fx].every(Number.isFinite) || usd < 0 || cny < 0 || fx <= 0 || usd * fx > 8 || cny > 8 || !Number.isFinite(expires) || expires <= now()) throw new GenerationHttpError("GENERATION_QUOTE_UNAVAILABLE", "A current server quote within the 8 CNY ceiling is required.", 503);
   return { usd, cny, fx, expiresAt: new Date(expires).toISOString() };
+}
+async function approvedPersonReference(env, deps) {
+  const key = String(env?.GENERATION_PERSON_REFERENCE_KEY || "");
+  const expectedHash = String(env?.GENERATION_PERSON_REFERENCE_SHA256 || "").toLowerCase();
+  const seconds = Number(env?.GENERATION_PERSON_REFERENCE_DURATION);
+  if (!key || !/^[a-f0-9]{64}$/.test(expectedHash) || !Number.isFinite(seconds) || seconds <= 0 || seconds > PERSON_REFERENCE_MAX_SECONDS) throw new GenerationHttpError("GENERATION_PERSON_REFERENCE_UNAVAILABLE", "A signed person reference with a verified duration is required.", 503);
+  const object = deps?.getReference ? await deps.getReference(key) : await env?.GENERATION_MEDIA?.get?.(key);
+  const bytes = await readObjectBytes(object, MAX_REFERENCE_VIDEO_BYTES);
+  if (!mp4Magic(bytes)) throw new GenerationHttpError("GENERATION_PERSON_REFERENCE_INVALID", "The approved person reference is not an MP4.", 503);
+  const actualHash = await sha256Bytes(bytes);
+  if (actualHash !== expectedHash) throw new GenerationHttpError("GENERATION_PERSON_REFERENCE_CHANGED", "The approved person reference bytes do not match the configured hash.", 503);
+  return { key, hash: actualHash, seconds };
+}
+function templateRate(env, template) {
+  const key = template === "person" ? "GENERATION_PERSON_RATE_USD_PER_SECOND" : "GENERATION_PET_RATE_USD_PER_SECOND";
+  const value = Number(env?.[key]);
+  if (!Number.isFinite(value) || value <= 0) throw new GenerationHttpError("GENERATION_QUOTE_UNAVAILABLE", "A server template rate is required before generation.", 503);
+  return value;
+}
+function templatePricing(env, template, reference, fingerprint) {
+  const pricing = templateQuote({ template, referenceDuration: reference?.seconds || 0, rateUsdPerSecond: templateRate(env, template), fx: env?.GENERATION_FX_USD_TO_CNY, expiresAt: env?.GENERATION_QUOTE_EXPIRES_AT });
+  if (!pricing) throw new GenerationHttpError("GENERATION_QUOTE_UNAVAILABLE", "A current server template quote within the 8 CNY ceiling is required.", 503);
+  const authorized = String(env?.GENERATION_AUTHORIZED_REQUEST_SHA256 || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(authorized) || authorized !== fingerprint) throw new GenerationHttpError("GENERATION_REQUEST_NOT_AUTHORIZED", "This exact normalized template request is not authorized for the controlled run.", 503, { fingerprint });
+  return { ...pricing, requestFingerprint: fingerprint, template, promptVersion: TEMPLATE_VERSION };
 }
 const PROVIDER_STATUSES = new Set(["pending", "submitted", "processing", "completed", "failed", "unknown"]);
 const DELIVERY_STATES = new Set(["PROVIDER_STATUS_TEMPORARY", "PROVIDER_URL_UNTRUSTED", "VIDEO_FETCH_RETRYABLE", "VIDEO_FETCH_INVALID", "OUTPUT_STORAGE_RETRYABLE"]);
@@ -217,19 +250,34 @@ async function handleGeneration(request, env, deps = {}) {
   if (env.GENERATION_ENABLED !== "true" || !env.APIMART_API_KEY || !runId) return json({ ok: false, code: "GENERATION_UNAVAILABLE" }, 503);
   const body = await request.formData().catch(() => null);
   const requestId = body?.get("requestId");
+  const templateValue = body?.get("template");
+  const template = templateValue === null ? null : templateName(templateValue);
   const style = body?.get("style");
   const resolution = body?.get("resolution");
   const lead = body?.get("lead");
   const regular = body?.get("regular");
-  if (!validRequestId(requestId) || style !== "standard" || resolution !== RESOLUTION || !isImage(lead) || regular && !isImage(regular)) return json({ ok: false, code: "INVALID_GENERATION_REQUEST" }, 400);
+  if (!validRequestId(requestId) || templateValue !== null && !template || style !== "standard" || resolution !== RESOLUTION || !isImage(lead) || regular && !isImage(regular) || template && regular) return json({ ok: false, code: "INVALID_GENERATION_REQUEST" }, 400);
   if (!await magicImage(lead) || regular && !await magicImage(regular)) return json({ ok: false, code: "INVALID_IMAGE_MAGIC" }, 400);
-  const pricing = quote(env);
-  const inputKey = `generation-inputs/${userId}/${crypto.randomUUID()}.lead`;
-  const regularKey = regular ? `${inputKey}.regular` : null;
-  const payload = { model: MODEL, prompt: "In a fancy cafe, the first-timer mistakes the tiny wall-mounted round table for a chair and sits on it. The regular enters and sits on the long bench, placing a coffee on the round table. The first-timer realizes the mistake, climbs down, sits on the bench, and acts completely normal.", size: SIZE, resolution: RESOLUTION, duration: DURATION, image_urls: [await inputOrigin(env, inputKey), ...regular ? [await inputOrigin(env, regularKey)] : []], generate_audio: true, nsfw_check: true };
   const leadBytes = await lead.arrayBuffer();
   const regularBytes = regular ? await regular.arrayBuffer() : null;
-  const inputFingerprint = await sha256(JSON.stringify({ requestId, style, resolution, duration: DURATION, size: SIZE, lead: await sha256Bytes(leadBytes), regular: regularBytes ? await sha256Bytes(regularBytes) : null, model: MODEL }));
+  let reference = null;
+  let pricing;
+  let inputFingerprint;
+  if (template) {
+    reference = template === "person" ? await approvedPersonReference(env, deps) : null;
+    inputFingerprint = await templateFingerprint(canonicalTemplateRequest({ template, authorizedRunId: runId, leadHash: await sha256Bytes(leadBytes), referenceHash: reference?.hash || null, referenceDuration: reference?.seconds || null, rateUsdPerSecond: templateRate(env, template) }));
+    pricing = templatePricing(env, template, reference, inputFingerprint);
+  } else {
+    pricing = quote(env);
+    inputFingerprint = await sha256(JSON.stringify({ requestId, style, resolution, duration: DURATION, size: SIZE, lead: await sha256Bytes(leadBytes), regular: regularBytes ? await sha256Bytes(regularBytes) : null, model: MODEL }));
+    if (String(env?.GENERATION_AUTHORIZED_REQUEST_SHA256 || "").trim()) return json({ ok: false, code: "GENERATION_REQUEST_NOT_AUTHORIZED", message: "A controlled template request is required for this authorized run." }, 503);
+  }
+  const inputKey = `generation-inputs/${userId}/${crypto.randomUUID()}.lead`;
+  const regularKey = regular ? `${inputKey}.regular` : null;
+  const leadUrl = await inputOrigin(env, inputKey);
+  const payload = template
+    ? templatePayload({ template, leadUrl, referenceUrl: reference ? await inputOrigin(env, reference.key) : null })
+    : { model: MODEL, prompt: "In a fancy cafe, the first-timer mistakes the tiny wall-mounted round table for a chair and sits on it. The regular enters and sits on the long bench, placing a coffee on the round table. The first-timer realizes the mistake, climbs down, sits on the bench, and acts completely normal.", size: SIZE, resolution: RESOLUTION, duration: DURATION, image_urls: [leadUrl, ...regular ? [await inputOrigin(env, regularKey)] : []], generate_audio: true, nsfw_check: true };
   let reservation;
   try {
     reservation = await reserveGeneration(env, { userId, requestId, runId, creditsRequired: 20, inputFingerprint });
@@ -248,7 +296,7 @@ async function handleGeneration(request, env, deps = {}) {
   }
   try {
     const submitted = await provider(env, deps).submit(payload);
-    await updateGenerationRun(env, { runId, userId, status: "submitted", providerTaskId: submitted.taskId, resultMeta: { inputKey, regularKey, quote: pricing } });
+    await updateGenerationRun(env, { runId, userId, status: "submitted", providerTaskId: submitted.taskId, resultMeta: { inputKey, regularKey, template, promptVersion: template ? TEMPLATE_VERSION : null, referenceHash: reference?.hash || null, referenceDuration: reference?.seconds || null, quote: pricing } });
     return json({ ok: true, job: { id: runId, status: "submitted" } }, 202);
   } catch (error) {
     const status = error.code === "PROVIDER_UNKNOWN" ? "unknown" : "failed";
