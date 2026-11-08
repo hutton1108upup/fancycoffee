@@ -58,6 +58,7 @@ test('pet choice sends the pet template without changing the generation recovery
   const loaded = await loadController({ expectedTemplate: 'pet' });
   await loaded.petTemplate.dispatch('click');
   assert.match(loaded.generate.textContent, /Prepare pet video/);
+  assert.equal(loaded.input['aria-label'], 'Add pet photo');
   loaded.input.files = [fixtureFile()];
   await loaded.input.dispatch('change');
   await loaded.personTemplate.dispatch('click');
@@ -65,6 +66,37 @@ test('pet choice sends the pet template without changing the generation recovery
   await loaded.petTemplate.dispatch('click');
   await loaded.generate.dispatch('click');
   assert.equal(loaded.generatePosts, 1);
+});
+
+test('new processing job removes the previous completed video and download link', async () => {
+  const loaded = await loadController();
+  const controller = loaded.context.__fancyCafeGeneration;
+  controller.renderGeneration({ status: 'completed', previewUrl: '/media/old.mp4', downloadUrl: '/api/generations/old/download' });
+  assert.equal(loaded.document.querySelector('[data-generation-video]').src, '/media/old.mp4');
+  assert.equal(loaded.document.querySelector('[data-generation-download]').href, '/api/generations/old/download');
+  controller.renderGeneration({ id: 'new-run', status: 'processing' });
+  assert.equal(loaded.document.querySelector('[data-generation-video]'), null);
+  assert.equal(loaded.document.querySelector('[data-generation-download]'), null);
+  controller.renderGeneration({ id: 'new-run', status: 'completed', previewUrl: '/media/new.mp4', downloadUrl: '/api/generations/new-run/download' });
+  assert.equal(loaded.document.querySelector('[data-generation-video]').src, '/media/new.mp4');
+  assert.equal(loaded.document.querySelector('[data-generation-download]').href, '/api/generations/new-run/download');
+});
+
+test('starting a new generate click clears old result before the request resolves', async () => {
+  const loaded = await loadController();
+  loaded.context.__fancyCafeGeneration.renderGeneration({ status: 'completed', previewUrl: '/media/old.mp4', downloadUrl: '/api/generations/old/download' });
+  loaded.input.files = [fixtureFile()];
+  await loaded.input.dispatch('change');
+  let resolveGenerate;
+  const generateResponse = new Promise((resolve) => { resolveGenerate = resolve; });
+  const originalFetch = loaded.context.fetch;
+  loaded.context.fetch = (path, options) => String(path) === '/api/generate' ? generateResponse : originalFetch(path, options);
+  const click = loaded.generate.dispatch('click');
+  await Promise.resolve();
+  assert.equal(loaded.document.querySelector('[data-generation-video]'), null);
+  assert.equal(loaded.document.querySelector('[data-generation-download]'), null);
+  resolveGenerate(new Response(JSON.stringify({ job: { id: 'job-1', requestId: 'request-1', status: 'submitted' } }), { status: 202 }));
+  await click;
 });
 
 test('uncertain saved jobs expose Check video status and restoreGeneration is inert without a generator', async () => {

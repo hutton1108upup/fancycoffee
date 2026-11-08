@@ -135,7 +135,7 @@
   globalThis.__fancyCafeBilling.checkPaypalPayment = checkPaypalPayment;
   globalThis.__fancyCafeBilling.handlePaypalReturn = handlePaypalReturn;
   const wireBilling = async () => { try { const packsResult = await api('/api/credit-packs'); state.packsResult = packsResult.data; state.packs = Array.isArray(packsResult.data?.packs) ? packsResult.data.packs : []; updateServiceStatus(state.health, packsResult.data); const billingResult = state.auth?.authenticated ? await api('/api/billing') : { data: null }; const map = { 'buy-starter-v2': 'credits-20', 'buy-pro-v2': 'credits-60', 'buy-studio-v2': 'credits-200' }; document.querySelectorAll('[data-testid="buy-starter-v2"],[data-testid="buy-pro-v2"],[data-testid="buy-studio-v2"]').forEach((button) => { const packId = map[button.getAttribute('data-testid')]; button.dataset.packId = packId; button.onclick = () => checkout(packId, button); }); renderPackState(); if (billingResult.data) renderBilling(billingResult.data); const paypalHandled = await handlePaypalReturn(); const pending = getPending(); const orderId = new URLSearchParams(window.location.search).get('order') || pending?.orderId; if (orderId && !paypalHandled) { const panel = document.createElement('p'); panel.className = 'local-feedback warning'; panel.textContent = 'Checking your order status…'; document.body.prepend(panel); await pollOrder(orderId, panel); }  } catch { updateServiceStatus(state.health, null); renderPackState(); } await restoreGeneration(); };
-  const applyTemplate = (template) => { state.template = template === 'pet' ? 'pet' : 'person'; document.querySelectorAll('[data-testid^="video-template-"]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.testid === `video-template-${state.template}`))); const input = document.getElementById('photo-lead'); const selectedFile = input?.files?.[0] || state.lead; const strong = input?.closest?.('label')?.querySelector('strong'); if (strong) strong.textContent = selectedFile?.name || (state.template === 'pet' ? 'Add pet photo' : 'Add person photo'); const help = $('[data-template-help]'); if (help) help.textContent = state.template === 'pet' ? 'Pet test mode: upload one pet photo or use the pet example.' : 'Person mode: upload an authorized adult photo.'; };
+  const applyTemplate = (template) => { state.template = template === 'pet' ? 'pet' : 'person'; document.querySelectorAll('[data-testid^="video-template-"]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.testid === `video-template-${state.template}`))); const input = document.getElementById('photo-lead'); const selectedFile = input?.files?.[0] || state.lead; const strong = input?.closest?.('label')?.querySelector('strong'); if (strong) strong.textContent = selectedFile?.name || (state.template === 'pet' ? 'Add pet photo' : 'Add person photo'); input?.setAttribute?.('aria-label', state.template === 'pet' ? 'Add pet photo' : 'Add person photo'); const help = $('[data-template-help]'); if (help) help.textContent = state.template === 'pet' ? 'Pet test mode: upload one pet photo or use the pet example.' : 'Person mode: upload an authorized adult photo.'; const inputHelp = $('.input-help'); if (inputHelp) inputHelp.textContent = state.template === 'pet' ? 'Clear pet photo. JPG, PNG or WebP · 10 MB max.' : 'Clear authorized adult photo. JPG, PNG or WebP · 10 MB max.'; };
   const updateSettings = () => { state.style = 'standard'; state.resolution = '480p'; const settings = $('[data-testid="video-settings"]'); if (settings) { settings.dataset.style = state.style; settings.dataset.resolution = state.resolution; settings.querySelectorAll('span')[1].innerHTML = `<strong>${costs.standard['480p']} credits</strong> per video`; } const button = $('[data-testid="generate-video"]'); if (button) { button.disabled = false; button.textContent = `Prepare ${state.template} video · 20 credits`; button.removeAttribute('title'); } };
   const wirePhoto = (id, role) => { const input = document.getElementById(id); if (!input || input.dataset.localWired) return; input.dataset.localWired = 'true'; input.disabled = false; input.removeAttribute('title'); input.addEventListener('change', () => { const file = input.files?.[0]; const label = input.closest('label'); const old = label?.querySelector('.local-photo-preview'); if (!file || !allowed.has(file.type) || file.size <= 0 || file.size > maxBytes) { input.value = ''; state[role] = null; old?.remove(); if (label) { const strong = label.querySelector('strong'); if (strong) strong.textContent = role === 'lead' && state.template === 'pet' ? 'Add pet photo' : role === 'lead' ? 'Add person photo' : 'Add photo'; } setFeedback(`${role === 'lead' ? (state.template === 'pet' ? 'Pet' : 'Person') : 'Regular'} photo must be JPG, PNG or WebP and no larger than 10 MB.`, 'error'); return; } state[role] = file; if (label) label.querySelector('strong').textContent = file.name; old?.remove(); const img = document.createElement('img'); img.alt = `${role} photo preview`; img.src = URL.createObjectURL(file); img.className = 'local-photo-preview'; label?.prepend(img); setFeedback(`${role === 'lead' ? (state.template === 'pet' ? 'Pet' : 'Person') : 'Regular'} photo ready.`, 'success'); }); };
   const generationKey = (userId) => `fancycafe:generation:${userId}`;
@@ -155,6 +155,10 @@
       const url = new URL(value, window.location.origin);
       return url.origin === window.location.origin && (url.protocol === 'https:' || url.protocol === 'http:');
     } catch { return false; }
+  };
+  const clearGenerationResult = () => {
+    $('[data-generation-video]')?.remove();
+    $('[data-generation-download]')?.remove();
   };
   const renderGeneration = (job) => {
     if (!job) return;
@@ -186,10 +190,13 @@
       link.textContent = 'Download completed MP4';
       setFeedback('Video completed.', 'success');
     } else if (job.status === 'failed') {
+      clearGenerationResult();
       setFeedback(job.message || 'Video generation failed. No retry was started.', 'warning');
     } else if (job.status === 'unknown') {
+      clearGenerationResult();
       setFeedback('We could not confirm your video status. Check again before starting another task.', 'warning');
     } else {
+      clearGenerationResult();
       setFeedback(`Video ${job.status || 'submitted'}…`);
     }
   };
@@ -282,6 +289,7 @@
       }
       const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       generationWrite(userId, { requestId, userId, status: 'submitting' });
+      renderGeneration({ requestId, userId, status: 'submitting' });
       const body = new FormData();
       body.append('lead', state.lead, state.lead.name);
       body.append('style', state.style);
@@ -353,5 +361,5 @@
     $('[data-testid="video-style-closer"]')?.addEventListener('click', () => setFeedback('Closer to original is unavailable in the current test mode.', 'warning'));
     $('[data-testid="video-resolution-720p"]')?.addEventListener('click', () => setFeedback('720p is unavailable in the current test mode.', 'warning'));
     updateSettings(); await wireAuth(); wireTestCharacter(); await wireBilling(); await restoreGeneration(); });
-  globalThis.__fancyCafeGeneration = { sameOriginDownload: generationDownload, storageKey: generationKey, statusText: (job) => job.status === 'completed' ? 'Video completed.' : job.status === 'failed' ? (job.message || 'Video generation failed.') : job.status === 'unknown' ? 'The server returned an unknown status.' : `Video ${job.status || 'submitted'}…`, configure(options) { Object.assign(state, options); return state; }, restoreGeneration };
+  globalThis.__fancyCafeGeneration = { sameOriginDownload: generationDownload, storageKey: generationKey, renderGeneration, statusText: (job) => job.status === 'completed' ? 'Video completed.' : job.status === 'failed' ? (job.message || 'Video generation failed.') : job.status === 'unknown' ? 'The server returned an unknown status.' : `Video ${job.status || 'submitted'}…`, configure(options) { Object.assign(state, options); return state; }, restoreGeneration };
 })();
