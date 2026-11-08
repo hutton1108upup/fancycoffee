@@ -113,11 +113,11 @@ function templateRate(env, template) {
   if (!Number.isFinite(value) || value <= 0) throw new GenerationHttpError("GENERATION_QUOTE_UNAVAILABLE", "A server template rate is required before generation.", 503);
   return value;
 }
-function templatePricing(env, template, reference, fingerprint) {
+function templatePricing(env, template, reference, fingerprint, controlled = true) {
   const pricing = templateQuote({ template, referenceDuration: reference?.seconds || 0, rateUsdPerSecond: templateRate(env, template), fx: env?.GENERATION_FX_USD_TO_CNY, expiresAt: env?.GENERATION_QUOTE_EXPIRES_AT });
   if (!pricing) throw new GenerationHttpError("GENERATION_QUOTE_UNAVAILABLE", "A current server template quote within the 8 CNY ceiling is required.", 503);
   const authorized = String(env?.GENERATION_AUTHORIZED_REQUEST_SHA256 || "").toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(authorized) || authorized !== fingerprint) throw new GenerationHttpError("GENERATION_REQUEST_NOT_AUTHORIZED", "This exact normalized template request is not authorized for the controlled run.", 503, { fingerprint });
+  if (controlled && (!/^[a-f0-9]{64}$/.test(authorized) || authorized !== fingerprint)) throw new GenerationHttpError("GENERATION_REQUEST_NOT_AUTHORIZED", "This exact normalized template request is not authorized for the controlled run.", 503, { fingerprint });
   return { ...pricing, requestFingerprint: fingerprint, template, promptVersion: TEMPLATE_VERSION };
 }
 const PROVIDER_STATUSES = new Set(["pending", "submitted", "processing", "completed", "failed", "unknown"]);
@@ -231,7 +231,7 @@ async function handleGeneration(request, env, deps = {}) {
   const session = deps.session || await deps.getSession?.(request, env);
   if (!session?.userId) return json({ ok: false, code: "AUTH_REQUIRED" }, 401);
   const userId = session.userId;
-  const runId = env.GENERATION_AUTHORIZED_RUN_ID || env.GENERATION_RUN_ID;
+  const controlled = env.WAFFO_MODE !== "production" && env.WAFFO_MODE !== "prod";
   if (request.method === "GET" && url.pathname === "/api/generations/latest") {
     const row = await getLatestGenerationRun(env, userId, url.searchParams.get("requestId"));
     return json({ ok: true, job: rowJob(row) });
@@ -246,8 +246,8 @@ async function handleGeneration(request, env, deps = {}) {
   }
   if (url.pathname !== "/api/generate" || request.method !== "POST") return null;
   if (typeof deps.requireCsrf === "function" && !await deps.requireCsrf(request, session, env)) return json({ ok: false, code: "CSRF_FAILED" }, 403);
-  if (!allowedEmail(session.email, env)) return json({ ok: false, code: "GENERATION_ACCOUNT_NOT_ALLOWED" }, 403);
-  if (env.GENERATION_ENABLED !== "true" || !env.APIMART_API_KEY || !runId) return json({ ok: false, code: "GENERATION_UNAVAILABLE" }, 503);
+  if (controlled && !allowedEmail(session.email, env)) return json({ ok: false, code: "GENERATION_ACCOUNT_NOT_ALLOWED" }, 403);
+  if (env.GENERATION_ENABLED !== "true" || !env.APIMART_API_KEY) return json({ ok: false, code: "GENERATION_UNAVAILABLE" }, 503);
   const body = await request.formData().catch(() => null);
   const requestId = body?.get("requestId");
   const templateValue = body?.get("template");
@@ -257,20 +257,26 @@ async function handleGeneration(request, env, deps = {}) {
   const lead = body?.get("lead");
   const regular = body?.get("regular");
   if (!validRequestId(requestId) || templateValue !== null && !template || style !== "standard" || resolution !== RESOLUTION || !isImage(lead) || regular && !isImage(regular) || template && regular) return json({ ok: false, code: "INVALID_GENERATION_REQUEST" }, 400);
+  if (!controlled && !template) return json({ ok: false, code: "INVALID_GENERATION_REQUEST" }, 400);
+  const runId = controlled ? (env.GENERATION_AUTHORIZED_RUN_ID || env.GENERATION_RUN_ID) : await sha256(JSON.stringify([userId, requestId]));
+  if (controlled && !runId) return json({ ok: false, code: "GENERATION_UNAVAILABLE" }, 503);
   if (!await magicImage(lead) || regular && !await magicImage(regular)) return json({ ok: false, code: "INVALID_IMAGE_MAGIC" }, 400);
   const leadBytes = await lead.arrayBuffer();
   const regularBytes = regular ? await regular.arrayBuffer() : null;
   let reference = null;
   let pricing;
   let inputFingerprint;
-  if (template) {
+  try { if (template) {
     reference = template === "person" ? await approvedPersonReference(env, deps) : null;
     inputFingerprint = await templateFingerprint(canonicalTemplateRequest({ template, authorizedRunId: runId, leadHash: await sha256Bytes(leadBytes), referenceHash: reference?.hash || null, referenceDuration: reference?.seconds || null, rateUsdPerSecond: templateRate(env, template) }));
-    pricing = templatePricing(env, template, reference, inputFingerprint);
+    pricing = templatePricing(env, template, reference, inputFingerprint, controlled);
   } else {
     pricing = quote(env);
     inputFingerprint = await sha256(JSON.stringify({ requestId, style, resolution, duration: DURATION, size: SIZE, lead: await sha256Bytes(leadBytes), regular: regularBytes ? await sha256Bytes(regularBytes) : null, model: MODEL }));
     if (String(env?.GENERATION_AUTHORIZED_REQUEST_SHA256 || "").trim()) return json({ ok: false, code: "GENERATION_REQUEST_NOT_AUTHORIZED", message: "A controlled template request is required for this authorized run." }, 503);
+  } } catch (error) {
+    if (error instanceof GenerationHttpError) return json({ ok: false, code: error.code, message: error.message }, error.status);
+    throw error;
   }
   const inputKey = `generation-inputs/${userId}/${crypto.randomUUID()}.lead`;
   const regularKey = regular ? `${inputKey}.regular` : null;
