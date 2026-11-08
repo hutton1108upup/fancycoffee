@@ -29,6 +29,21 @@ No upload or real-person review implementation is included. Inputs may be public
 
 The controlled 2026-11-06 run used the standard `seedance-2.0` 480p 15-second image-to-video path, charged 20 website credits, and returned provider task `task_01M6QB0W51XYPRQARYMX3PPA49`. The provider cost was `$0.99` / 9.9 provider credits; the observed 6.6684 FX rate was about `¥6.60`. The Test key had a 10-credit total limit and one-day expiry. This was one controlled Test run, not public unlimited availability. The earlier informational price snapshot remains a planning estimate; tier discounts, final output/reference billing, account balance and FX can change actual charges.
 
+The controlled Worker templates are server-selected with `template=person` or
+`template=pet`; omitting the field keeps the legacy cafe flow. Both templates
+remain fixed at `seedance-2.0`, 480p, 15 seconds and 9:16, charging 20 website
+credits. `person` uses only the approved private R2 MP4 named by
+`GENERATION_PERSON_REFERENCE_KEY`, checks its bytes against
+`GENERATION_PERSON_REFERENCE_SHA256`, and trusts its pre-approved duration from
+`GENERATION_PERSON_REFERENCE_DURATION` (maximum 9 seconds). It sends one signed
+`video_urls` reference and explicitly does not promise pixel-perfect face
+swapping; this is an internal generation boundary, not a user-facing quality
+guarantee. `pet` sends no video reference and uses a fixed local scene prompt
+for the grey-wall, round-table scene. New template submissions require a
+server rate, current FX/expiry, and an exact `GENERATION_AUTHORIZED_REQUEST_SHA256`
+matching the normalized input/reference hashes; no database migration is
+needed because the hash and quote are stored in `generation_runs` metadata.
+
 The run produced one D1 record `b5ab6a20-4908-4cac-9db9-f4a5da0830ef`: paid 20 → reserved 20 → reserved 0, delivered 20, available 0. After refresh, the owner page recovered the video; the downloaded MP4 was 2,819,373 bytes with SHA-256 `71b5a7d1c537bcccd4cd7a43d564b188ed80a145f62a2dbb2d25d76c9c8b0cfc`, decoded as 361 frames / 15.104 seconds / 496×864 / 24fps H.264/AAC with audio. Evidence is local under `.data/evidence/seedance-fancy-cafe.mp4`, `.data/evidence/seedance-site-playback.jpg`, and `.data/evidence/seedance-output-check.json`.
 
 Official references checked 2026-11-05:
