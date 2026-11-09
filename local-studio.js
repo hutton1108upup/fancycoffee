@@ -2,7 +2,7 @@
   const maxBytes = 10 * 1024 * 1024;
   const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
   const state = { template: 'person', style: 'standard', resolution: '480p', lead: null, regular: null, auth: null, health: null, packs: [], csrfToken: '' };
-  const costs = { standard: { '480p': 20, '720p': 40 }, closer: { '480p': 30, '720p': 50 } };
+  const costs = { standard: { '480p': 20 } };
   const $ = (s) => document.querySelector(s);
   const setFeedback = (message, kind = 'info') => { let node = $('[data-local-feedback]'); if (!node) { node = document.createElement('p'); node.dataset.localFeedback = ''; ($('.studio-action') || $('.pricing-section') || document.body)?.prepend(node); } node.textContent = message; node.className = `local-feedback ${kind}`; };
   const addStyles = () => { const style = document.createElement('style'); style.textContent = '.local-feedback{margin:0 0 12px;font-size:14px;line-height:1.5}.local-feedback.warning{color:#76591d}.local-feedback.error{color:#9d2b2b}.local-feedback.success{color:#356b35}.local-photo-preview{display:block;width:100%;max-height:180px;object-fit:cover;border-radius:6px;margin-bottom:8px}.photo-drop{min-height:150px}.billing-panel{margin:16px 0;padding:14px;border:1px solid var(--desk-line,#d9d8cb);border-radius:8px;background:#fffdf8;color:#282c24;font-size:14px}.billing-panel p{margin:4px 0;color:inherit}.billing-panel ul{margin:8px 0;padding-left:18px;color:inherit}.billing-test{color:#76591d;font-weight:600}'; document.head.append(style); };
@@ -346,20 +346,12 @@
     addStyles();
     wireGenerationController();
     wirePhoto('photo-lead', 'lead');
-    wirePhoto('photo-keyboard', 'regular');
-    const optionalCast = document.querySelector('.band-optional');
-    if (optionalCast) optionalCast.hidden = true;
     [['[data-testid="video-template-person"]', 'person'], ['[data-testid="video-template-pet"]', 'pet']].forEach(([selector, template]) => $(selector)?.addEventListener('click', () => { applyTemplate(template); updateSettings(); }));
     document.querySelectorAll('.studio-quality fieldset[disabled]').forEach((field) => field.removeAttribute('disabled'));
     ['[data-testid="video-style-standard"]', '[data-testid="video-resolution-480p"]', '[data-testid="generate-video"]'].forEach((s) => { const node = $(s); if (node) { node.disabled = false; node.removeAttribute('title'); } });
-    const previewButton = $('[data-testid="generate-free-preview"]');
-    if (previewButton) { previewButton.disabled = true; previewButton.title = 'Free image preview is not available.'; }
-    ['[data-testid="video-style-closer"]', '[data-testid="video-resolution-720p"]'].forEach((s) => { const node = $(s); if (node) { node.disabled = true; node.title = 'Only Standard 480p is available.'; } });
     applyTemplate('person');
     $('[data-testid="video-style-standard"]')?.addEventListener('click', () => { state.style = 'standard'; updateSettings(); });
     $('[data-testid="video-resolution-480p"]')?.addEventListener('click', () => { state.resolution = '480p'; updateSettings(); });
-    $('[data-testid="video-style-closer"]')?.addEventListener('click', () => setFeedback('Closer to original is unavailable.', 'warning'));
-    $('[data-testid="video-resolution-720p"]')?.addEventListener('click', () => setFeedback('720p is unavailable.', 'warning'));
     updateSettings(); await wireAuth(); wireTestCharacter(); await wireBilling(); await restoreGeneration(); });
   globalThis.__fancyCafeGeneration = { sameOriginDownload: generationDownload, storageKey: generationKey, renderGeneration, statusText: (job) => job.status === 'completed' ? 'Video completed.' : job.status === 'failed' ? (job.message || 'Video generation failed.') : job.status === 'unknown' ? 'The server returned an unknown status.' : `Video ${job.status || 'submitted'}…`, configure(options) { Object.assign(state, options); return state; }, restoreGeneration };
 })();
