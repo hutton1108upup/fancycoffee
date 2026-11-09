@@ -10,10 +10,10 @@
 - 2026-11-08 已在既有中国账户创建唯一 Fancy Cafe AI Live 资源；正式 webhook 已创建并完成只读预检。不要重新创建应用或重复迁移。
 - Live 预检结果：OAuth 有效、webhook HTTP 200、ID 和 URL 匹配，缺失事件与意外事件均为空。预检不创建订单，也不代表真实收款已验证。
 - 2026-11-08 readiness 复核：正式配置与已登录 PayPal.cn 胡晓成商户页面的归属已核对；这是配置归属核验，不是交易级验证。预检脚本仍输出 `merchantOwnershipVerified=false`，因为该脚本本身不验证商户归属。
-- 2026-11-08 已进入正式模式：`paymentMode=prod`、`provider=paypal`、`productionConfigured=true`；正式入口和配置门禁已打开，但正式实付、capture、到账和退款闭环仍未验收。
-- 当前全项目 104 tests 和 build 已通过；最终发布以 `release.json` 和对应 PR 为准。
-- 当前 Worker secrets 已写入 Cloudflare Worker：四项 `PAYPAL_PRODUCTION_*`（client ID、client secret、merchant ID、webhook ID）、`PAYPAL_PRODUCTION_ENABLED=true`，以及 `WAFFO_MODE=production`。本文不记录 secret 值或 client ID。
-- `health.paymentMode.productionConfigured` 只有在正式凭据齐全且生产开关打开时才为 `true`；本次已为 `true`，但真实交易仍未完成验收。
+- 2026-11-09 当前保持 Sandbox 模式：`WAFFO_MODE=test`、`PAYPAL_PRODUCTION_ENABLED=false`、`paymentMode=test`、`testConfigured=true`、`productionConfigured=false`。正式配置保留但不启用。
+- 2026-11-08 历史验收记录显示全项目 104 tests 和 build 通过；最终发布以 `release.json` 和对应 PR 为准，本句不是本次重跑结果。
+- 当前 Worker 保持测试配置；正式配置不启用。本文不记录 secret 值或 client ID。
+- 当前 `health.paymentMode.productionConfigured=false`；正式凭据可保留，但 production 开关关闭。
 - 生成侧已完成两条受控 15 秒验证（Person 与 Pet），包含实际下载和浏览器完整播放；这两条生成测试不代表 production paid end-to-end。
 - `APP_DB` 用于正式用户与正式账本；`BILLING_TEST_DB` 只用于测试账本。不要把测试订单写入正式库。
 - `WAFFO_MODE=prod|production` 选择 production，其他值选择 test；`BILLING_PROVIDER=paypal` 选择 PayPal，未满足配置时付款保持 disabled。
@@ -25,7 +25,8 @@
 ```text
 BILLING_PROVIDER=paypal
 PAYPAL_ENABLED=true
-PAYPAL_PRODUCTION_ENABLED=true       # 当前正式入口已打开；真实交易仍需单独授权验收
+WAFFO_MODE=test
+PAYPAL_PRODUCTION_ENABLED=false      # 当前保持关闭；正式配置不启用
 PAYPAL_TEST_CLIENT_ID=...
 PAYPAL_TEST_CLIENT_SECRET=...
 PAYPAL_TEST_MERCHANT_ID=...
@@ -50,7 +51,7 @@ sandbox API 是 `https://api-m.sandbox.paypal.com`，production API 是 `https:/
 2. `migrations/0004_paypal.sql` 已在目标 D1 各应用一次；后续部署不要重复执行同一迁移，保持正式库与测试库隔离。
 3. Sandbox 与 Live 应用均已存在；不要重复新建。把私有结果分别保存到 `.secrets/paypal-sandbox.json` 和 `.secrets/paypal-production.json`，不要提交或粘贴其内容。
 4. 用已批准的私有 JSON 运行 `node scripts/paypal-production-preflight.mjs <path>`。该脚本只允许访问正式 `api-m.paypal.com` 的 OAuth 和 GET webhook 配置，输出安全摘要并明确 `merchantOwnershipVerified=false`；不创建订单，不执行 capture/refund。Sandbox 预检仍属于本地维护工具，不是公开支付接口。
-5. sandbox 的真实回站、重复回站、取消、签名 webhook 和退款冻结已经验证。当前 Live 已能创建 `$9.99 / 20 credits` 的待付款订单，收银台收款人匹配，但尚未支付；真实 capture、正式回调到账和正式退款仍未验证。不要把待付款订单写成正式收入。
+5. 按 PayPal 官方 Sandbox 说明，Sandbox 的 virtual environment/mock transactions 不触及 Live accounts；本项目以 Sandbox 模拟成功、回站重复访问、取消、签名 webhook 和退款冻结作为支付接入验收，不要求 Live 实付。参考：[PayPal Sandbox](https://developer.paypal.com/tools/sandbox/)。正式模式仍保持关闭。
 
 ## 退款与积分
 
