@@ -43,6 +43,10 @@ test('built output cannot contain private data directories', (t) => {
   assert.equal(existsSync(join(dist, '.data')), false);
   assert.equal(existsSync(join(dist, '.secrets')), false);
   assert.equal(existsSync(join(dist, 'examples', 'index.html')), true);
+  const examplesHtml = readFileSync(join(dist, 'examples', 'index.html'), 'utf8');
+  assert.match(examplesHtml, /<script src="\/analytics\.js" defer><\/script>/);
+  assert.doesNotMatch(examplesHtml, /<script src="\/local-studio\.js" defer><\/script>/);
+  assert.match(readFileSync(join(dist, 'index.html'), 'utf8'), /<script src="\/local-studio\.js" defer><\/script>/);
   for (const asset of expectedExampleAssets) assert.equal(existsSync(join(dist, ...asset.split('/'))), true, `missing built example asset ${asset}`);
   const builtExamplesDir = join(dist, 'media', 'examples');
   const approvedExampleFiles = expectedExampleAssets.map((asset) => asset.split('/').pop()).sort();
