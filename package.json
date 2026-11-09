@@ -1,7 +1,7 @@
 {
   "name": "fancycoffee",
   "version": "1.0.0",
-  "description": "本目录是根据原站公开页面保存的静态预览，共 15 个页面，并非原项目源码或可上线成品。图片、视频和字体保存在本地。原页面中的域名已替换为 https://fancycafeaivideo.pro，客服邮箱暂未配置。",
+  "description": "Fancy Cafe AI 的 16 个静态公开页面与本地/Cloudflare Worker 实现；原站源码未取得，当前 PayPal 为 Sandbox，正式真钱扣款关闭。",
   "main": "local-server.mjs",
   "scripts": {
     "start": "node --env-file-if-exists=.env local-server.mjs",

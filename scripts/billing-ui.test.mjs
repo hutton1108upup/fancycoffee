@@ -79,14 +79,13 @@ test('static build injects the shared script once per HTML page', () => {
 
 function runtime({ fetchImpl, storageImpl = new Map(), setTimeoutImpl = setTimeout } = {}) {
   const listeners = [];
-  const changeCounts = { lead: 0, regular: 0 };
-  const inputs = { lead: { disabled: true, dataset: {}, removeAttribute() {}, addEventListener() { changeCounts.lead += 1; } }, regular: { disabled: true, dataset: {}, removeAttribute() {}, addEventListener() { changeCounts.regular += 1; } } };
+  const changeCounts = { lead: 0 };
+  const inputs = { lead: { disabled: true, dataset: {}, removeAttribute() {}, addEventListener() { changeCounts.lead += 1; } } };
   const eventCounts = { style: 0 };
   const status = { textContent: '' };
   const makeNode = () => ({ dataset: {}, style: {}, children: [], append(...items) { this.children.push(...items); }, prepend(...items) { this.children.unshift(...items); }, removeChild() {}, setAttribute() {}, removeAttribute() {}, closest() { return null; }, addEventListener() {}, className: '', textContent: '' });
   const standard = makeNode(); standard.addEventListener = () => { eventCounts.style += 1; };
-  const closer = makeNode(); closer.addEventListener = () => { eventCounts.style += 1; };
-  const document = { addEventListener(name, callback) { if (name === 'DOMContentLoaded') listeners.push(callback); }, getElementById(id) { return id === 'photo-lead' ? inputs.lead : inputs.regular; }, querySelector(selector) { return selector === '#service-status' ? status : selector === '[data-testid="video-style-standard"]' ? standard : selector === '[data-testid="video-style-closer"]' ? closer : null; }, querySelectorAll() { return []; }, createElement: makeNode, head: makeNode(), body: makeNode() };
+  const document = { addEventListener(name, callback) { if (name === 'DOMContentLoaded') listeners.push(callback); }, getElementById(id) { return id === 'photo-lead' ? inputs.lead : null; }, querySelector(selector) { return selector === '#service-status' ? status : selector === '[data-testid="video-style-standard"]' ? standard : null; }, querySelectorAll() { return []; }, createElement: makeNode, head: makeNode(), body: makeNode() };
   const storage = { setItem: (key, value) => { if (storageImpl.setItem) return storageImpl.setItem(key, value); storageImpl.set(key, value); }, getItem: (key) => { if (storageImpl.getItem) return storageImpl.getItem(key); return storageImpl.get(key) || null; }, removeItem: (key) => { if (storageImpl.removeItem) return storageImpl.removeItem(key); storageImpl.delete(key); } };
   const context = { document, window: { location: { pathname: '/', search: '', hash: '', assign() {} } }, URL, URLSearchParams, AbortController, setTimeout: setTimeoutImpl, clearTimeout, sessionStorage: storage, fetch: fetchImpl || (async () => ({ ok: false, status: 503, json: async () => ({}) })), console };
   vm.runInNewContext(studio, context);
@@ -100,9 +99,8 @@ test('DOMContentLoaded enables local upload before network promises settle', asy
   assert.equal(app.listeners.length, 1);
   const event = app.listeners[0]();
   assert.equal(app.inputs.lead.disabled, false);
-  assert.equal(app.inputs.regular.disabled, false);
-  assert.equal(JSON.stringify(app.changeCounts), JSON.stringify({ lead: 1, regular: 1 }));
-  assert.equal(app.eventCounts.style, 2);
+  assert.equal(JSON.stringify(app.changeCounts), JSON.stringify({ lead: 1 }));
+  assert.equal(app.eventCounts.style, 1);
   resolveFetch({ ok: false, status: 503, json: async () => ({}) });
   await event;
 });
