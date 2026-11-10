@@ -4,6 +4,7 @@
 
 ## 当前状态
 
+- 2026-11-09 后续恢复：`WAFFO_MODE=production`、`PAYPAL_PRODUCTION_ENABLED=true`；线上 health 显示 PayPal production 和 checkout 已配置。Sandbox 验收期间的 test 状态为历史状态，正式付款与生成的真实端到端仍未验收。生成报价截止 2026-11-15 09:40 UTC，到期前需重新核实并更新。
 - PayPal sandbox 资源已创建；真实 sandbox 买家付款、回站重复访问、取消订单、签名 webhook 与退款冻结已验证。
 - 验证覆盖：$9.99 订单到账 20 credits，重复回站不重复记账；$24.99 取消订单保持 pending 且不发 credits；退款 webhook 后订单为 `refund_pending`，20 credits 为 hold。以上不是正式真钱验证。
 - `migrations/0004_paypal.sql` 已应用到正式 `APP_DB` 与测试 `BILLING_TEST_DB`；旧 Waffo ledger 保留。
