@@ -62,8 +62,10 @@ test('pet choice sends the pet template without changing the generation recovery
   loaded.input.files = [fixtureFile()];
   await loaded.input.dispatch('change');
   await loaded.personTemplate.dispatch('click');
-  assert.equal(loaded.input.closest('label').querySelector('strong').textContent, 'lead.jpg');
+  assert.equal(loaded.input.closest('label').querySelector('strong').textContent, 'Add person photo');
   await loaded.petTemplate.dispatch('click');
+  loaded.input.files = [fixtureFile()];
+  await loaded.input.dispatch('change');
   await loaded.generate.dispatch('click');
   assert.equal(loaded.generatePosts, 1);
 });

@@ -13,7 +13,7 @@ const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const costs = { standard: { '480p': 20, '720p': 40 }, closer: { '480p': 30, '720p': 50 } };
 const googleAuth = createGoogleAuth();
 const auth = createAuthService({ googleAuth, secureCookies: process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true' });
-const publicRootFiles = new Set(['index.html', 'manifest.json', 'brand.svg', 'og.png', 'robots.txt', 'local-studio.js']);
+const publicRootFiles = new Set(['index.html', 'manifest.json', 'shared-220cf97bf953.css', 'brand.svg', 'og.png', 'robots.txt', 'local-studio.js']);
 const publicDirs = new Set(['about', 'blog', 'contact', 'cookie', 'examples', 'fancy-cafe-pov-ideas', 'fancy-cafe-pov-meme-meaning', 'fancy-cafe-pov-trend-tiktok', 'first-time-in-a-fancy-cafe-ai-free', 'first-time-in-a-fancy-cafe-viral-video', 'fonts', 'how-to-make-first-time-in-a-fancy-cafe-ai-video', 'media', 'pricing', 'privacy', 'reference', 'refund', 'terms']);
 function isPublicFile(file) { const rel = relative(rootBase, normalize(file)).replaceAll('\\', '/'); const [first] = rel.split('/'); if (!rel || rel.startsWith('..')) return false; if (!rel.includes('/')) return publicRootFiles.has(rel); return publicDirs.has(first) && !rel.endsWith('.mjs') && !rel.endsWith('.json'); }
 function json(res, status, body, headers = {}) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }); res.end(JSON.stringify(body)); }

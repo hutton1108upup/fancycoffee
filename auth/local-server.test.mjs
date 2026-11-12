@@ -15,6 +15,7 @@ test('local HTTP auth boundary and static allowlist', async (t) => {
   assert.equal((await fetch(`${base}/auth/google.mjs`)).status, 404);
   const logout = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { origin: 'https://evil.example' } }); assert.equal(logout.status, 403); assert.equal((await fetch(`${base}/auth/me`, { headers: { cookie: '%broken=%%' } })).status, 200);
   assert.equal((await fetch(`${base}/index.html`)).status, 200);
+  const stylesheet = await fetch(`${base}/shared-220cf97bf953.css`); assert.equal(stylesheet.status, 200); assert.match(stylesheet.headers.get('content-type'), /^text\/css/);
   assert.equal((await fetch(`${base}/about/`)).status, 200);
   assert.equal((await fetch(`${base}/package.json`)).status, 404);
 });
