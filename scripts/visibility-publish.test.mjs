@@ -37,6 +37,21 @@ test('example media and MP4 byte manifest are publishable', () => {
   }
 });
 
+test('built pages can load their shared stylesheet', (t) => {
+  const dist = sourcePath('dist');
+  if (!existsSync(dist)) return t.skip('dist is absent; run the static build first');
+  const pages = filesUnder(dist).filter((path) => path.endsWith('.html'));
+  let references = 0;
+  for (const path of pages) {
+    const html = readFileSync(path, 'utf8');
+    for (const match of html.matchAll(/href=["']\/(shared-[a-f0-9]+\.css)["']/g)) {
+      references += 1;
+      assert.equal(existsSync(join(dist, match[1])), true, `missing stylesheet for ${path}`);
+    }
+  }
+  assert.ok(references > 0, 'expected at least one shared stylesheet reference');
+});
+
 test('built output cannot contain private data directories', (t) => {
   const dist = sourcePath('dist');
   if (!existsSync(dist)) return t.skip('dist is absent; run the static build before the publish-output check');
